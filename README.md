@@ -34,9 +34,7 @@
 
 ## 已构建 APK
 
-[点击这里下载 APK](https://github.com/1clipse/weibo-chaohua-android/releases/download/v0.1.0/weibo-chaohua-checkin-debug.apk)
-
-也可以在 Release 页面下载：
+可以在 Release 页面下载：
 
 [v0.1.0 Debug APK 下载](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v0.1.0)
 
