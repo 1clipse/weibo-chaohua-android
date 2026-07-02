@@ -34,7 +34,13 @@
 
 ## 已构建 APK
 
-仓库内已包含当前 Debug APK：
+[点击这里下载 APK](https://github.com/1clipse/weibo-chaohua-android/releases/download/v0.1.0/weibo-chaohua-checkin-debug.apk)
+
+也可以在 Release 页面下载：
+
+[v0.1.0 Debug APK 下载](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v0.1.0)
+
+仓库内也包含当前 Debug APK：
 
 ```text
 releases\weibo-chaohua-checkin-debug.apk
