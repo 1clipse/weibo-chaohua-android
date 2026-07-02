@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">微博超话签到助手</string>
+    <string name="accessibility_service_label">微博超话签到助手</string>
+    <string name="accessibility_service_description">仅在微博 App 内识别并点击超话签到按钮。</string>
+</resources>
