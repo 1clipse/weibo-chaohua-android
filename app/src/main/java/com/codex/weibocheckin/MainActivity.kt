@@ -488,7 +488,7 @@ private fun SettingsPanel(
     onTimeChange: (String) -> Unit
 ) {
     Panel {
-        SectionTitle("设置", "默认林俊杰超话，每天 10:00")
+        SectionTitle("设置", "可配置目标超话，每天 10:00")
         OutlinedTextField(
             value = url,
             onValueChange = onUrlChange,

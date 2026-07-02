@@ -10,7 +10,7 @@ class CheckinTextClassifierTest {
     fun successTextsWin() {
         assertEquals(
             PageState.SUCCESS,
-            CheckinTextClassifier.classify(listOf("林俊杰超话", "签到成功", "连续签到 12 天"))
+            CheckinTextClassifier.classify(listOf("目标超话", "签到成功", "连续签到 12 天"))
         )
     }
 
@@ -18,7 +18,7 @@ class CheckinTextClassifierTest {
     fun alreadyDoneTextsAreDistinctFromFreshSuccess() {
         assertEquals(
             PageState.ALREADY_DONE,
-            CheckinTextClassifier.classify(listOf("林俊杰超话", "今日已签到"))
+            CheckinTextClassifier.classify(listOf("目标超话", "今日已签到"))
         )
     }
 
