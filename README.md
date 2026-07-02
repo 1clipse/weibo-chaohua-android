@@ -34,6 +34,12 @@
 
 ## 已构建 APK
 
+仓库内已包含当前 Debug APK：
+
+```text
+releases\weibo-chaohua-checkin-debug.apk
+```
+
 当前 Debug APK 已输出到：
 
 ```text

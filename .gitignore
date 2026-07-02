@@ -7,6 +7,7 @@ local.properties
 
 *.iml
 *.apk
+!releases/*.apk
 *.aab
 *.keystore
 *.jks
