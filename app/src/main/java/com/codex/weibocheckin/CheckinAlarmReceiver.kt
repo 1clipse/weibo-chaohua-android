@@ -18,11 +18,17 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         AppPreferences.setLastAttempt(context, now.toString())
         AppPreferences.setIdleDeadline(context, deadline.toString())
 
-        if (intent?.action == AppConstants.ACTION_START_CHECKIN) {
-            AppPreferences.addLog(context, "定时任务触发")
-            AppPreferences.setTodayStatus(context, CheckinStatus.WAITING_FOR_IDLE)
-        } else {
-            AppPreferences.addLog(context, "等待空闲重试触发")
+        when (intent?.action) {
+            AppConstants.ACTION_START_CHECKIN -> {
+                AppPreferences.addLog(context, "定时任务触发")
+                AppPreferences.setTodayStatus(context, CheckinStatus.WAITING_FOR_IDLE)
+            }
+            AppConstants.ACTION_CONTINUE_CHECKIN -> {
+                AppPreferences.addLog(context, "通知继续触发")
+            }
+            else -> {
+                AppPreferences.addLog(context, "等待空闲重试触发")
+            }
         }
 
         if (!AccessibilityStatusChecker.isServiceEnabled(context)) {
@@ -33,7 +39,8 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
                 reason = "无障碍服务未开启",
                 logMessage = "预检查未通过: 无障碍服务未开启，未进入 RUNNING，未打开微博",
                 notificationTitle = "需要打开无障碍服务",
-                notificationMessage = "微博超话签到需要先开启本应用的无障碍服务，请开启后等待自动重试或手动签到。"
+                notificationMessage = "微博超话签到需要先开启本应用的无障碍服务。开启后可回到 App 手动测试或等待自动重试。",
+                canContinueFromNotification = false
             )
             return
         }
@@ -52,7 +59,8 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
                 reason = "设备处于安全锁屏",
                 logMessage = "预检查未通过: 设备处于安全锁屏，未进入 RUNNING，未打开微博",
                 notificationTitle = "需要解锁后继续签到",
-                notificationMessage = "手机处于安全锁屏状态，无法可靠自动打开微博。请解锁后保持空闲，系统会继续重试到 23:00。"
+                notificationMessage = "手机处于安全锁屏状态，无法可靠自动打开微博。解锁后可点通知继续尝试。",
+                canContinueFromNotification = true
             )
             DeviceIdleChecker.DeviceIdleState.ACTIVE -> waitForIdleOrFail(context, now, deadline)
         }
@@ -86,11 +94,16 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         reason: String,
         logMessage: String,
         notificationTitle: String,
-        notificationMessage: String
+        notificationMessage: String,
+        canContinueFromNotification: Boolean
     ) {
         AppPreferences.setTodayStatus(context, CheckinStatus.NEEDS_ATTENTION, reason)
         AppPreferences.addLog(context, logMessage)
-        NotificationHelper.notify(context, notificationTitle, notificationMessage)
+        if (canContinueFromNotification) {
+            NotificationHelper.notifyOpenCheckin(context, notificationTitle, notificationMessage)
+        } else {
+            NotificationHelper.notify(context, notificationTitle, notificationMessage)
+        }
 
         val nextRetry = IdleRetryCalculator.nextRetryOrNull(now, deadline)
         if (nextRetry == null) {
@@ -107,7 +120,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
     private fun failBecauseNoIdleTime(context: Context) {
         CheckinScheduler.cancelRetry(context)
         AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, "23:00 前手机一直处于使用状态")
-        AppPreferences.addLog(context, "今日未自动签到: 23:00 前未检测到锁屏或待机")
+        AppPreferences.addLog(context, "今日未自动签到: 23:00 前未检测到可执行的空闲状态")
         NotificationHelper.notify(context, "今日未自动签到", "23:00 前手机一直在使用，请手动处理微博超话签到。")
         CheckinScheduler.scheduleNext(context)
     }

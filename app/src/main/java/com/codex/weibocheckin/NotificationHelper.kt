@@ -13,7 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 object NotificationHelper {
-    private const val CHANNEL_ID = "weibo_checkin_status"
+    private const val CHANNEL_ID = "weibo_checkin_status_v2"
     private const val OPEN_CHECKIN_NOTIFICATION_ID = 1002
     private const val OPEN_CHECKIN_REQUEST_CODE = 2002
 
@@ -23,7 +23,7 @@ object NotificationHelper {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "微博签到结果",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             )
             manager.createNotificationChannel(channel)
         }
@@ -43,6 +43,7 @@ object NotificationHelper {
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
 
@@ -59,7 +60,7 @@ object NotificationHelper {
             return
         }
 
-        val launchIntent = Intent(context, CheckinLaunchActivity::class.java)
+        val launchIntent = Intent(context, CheckinContinueActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0

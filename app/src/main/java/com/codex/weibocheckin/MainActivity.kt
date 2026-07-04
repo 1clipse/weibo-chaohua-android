@@ -29,22 +29,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -503,13 +501,12 @@ private fun SettingsPanel(
             singleLine = false,
             maxLines = 3
         )
-        TimePickerField(timeText = timeText, onTimeChange = onTimeChange)
+        TimeWheelField(timeText = timeText, onTimeChange = onTimeChange)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimePickerField(
+private fun TimeWheelField(
     timeText: String,
     onTimeChange: (String) -> Unit
 ) {
@@ -517,19 +514,36 @@ private fun TimePickerField(
     val (initialHour, initialMinute) = parseTime(timeText) ?: (10 to 0)
 
     if (showPicker) {
-        val pickerState = rememberTimePickerState(
-            initialHour = initialHour,
-            initialMinute = initialMinute,
-            is24Hour = true
-        )
+        var selectedHour by remember(timeText) { mutableStateOf(initialHour) }
+        var selectedMinute by remember(timeText) { mutableStateOf(initialMinute) }
         AlertDialog(
             onDismissRequest = { showPicker = false },
             title = { Text("选择每日尝试时间") },
-            text = { TimePicker(state = pickerState) },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    TimeWheelColumn(
+                        title = "\u5c0f\u65f6",
+                        values = (0..23).toList(),
+                        selectedValue = selectedHour,
+                        onValueSelected = { selectedHour = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TimeWheelColumn(
+                        title = "\u5206\u949f",
+                        values = (0..59).toList(),
+                        selectedValue = selectedMinute,
+                        onValueSelected = { selectedMinute = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onTimeChange("%02d:%02d".format(pickerState.hour, pickerState.minute))
+                        onTimeChange("%02d:%02d".format(selectedHour, selectedMinute))
                         showPicker = false
                     },
                     shape = CompactShape
@@ -574,6 +588,81 @@ private fun TimePickerField(
             }
             TextButton(onClick = { showPicker = true }, shape = CompactShape) {
                 Text("选择")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimeWheelColumn(
+    title: String,
+    values: List<Int>,
+    selectedValue: Int,
+    onValueSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (selectedValue - 2).coerceAtLeast(0)
+    )
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = CompactShape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(216.dp),
+                contentPadding = PaddingValues(vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(values) { value ->
+                    val selected = value == selectedValue
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp)
+                            .height(38.dp)
+                            .clickable { onValueSelected(value) },
+                        shape = CompactShape,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                        } else {
+                            Color.Transparent
+                        },
+                        border = if (selected) {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.36f))
+                        } else {
+                            null
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                "%02d".format(value),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -19,9 +19,9 @@ class WeiboAccessibilityService : AccessibilityService() {
             finish(
                 status = CheckinStatus.FAILED,
                 title = "微博签到超时",
-                notification = "30 秒内没有确认签到状态。",
+                notification = "45 秒内没有确认签到状态。",
                 log = "超时: 未识别到签到结果",
-                reason = "30 秒内没有确认签到状态"
+                reason = "45 秒内没有确认签到状态"
             )
             return
         }

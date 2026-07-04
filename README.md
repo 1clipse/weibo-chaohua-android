@@ -40,7 +40,7 @@
 
 可以在 Release 页面下载：
 
-[v1.1.0 Debug APK 下载](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.0)
+[v1.1.1 Debug APK 下载](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.1)
 
 仓库内也包含当前 Debug APK：
 

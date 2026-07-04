@@ -35,7 +35,7 @@ object CheckinScheduler {
         } else {
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
         }
-        AppPreferences.addLog(context, "下次签到已安排: $next")
+        AppPreferences.addLog(context, "已请求系统在 $next 触发下次签到尝试")
     }
 
     fun scheduleWatchdog(context: Context, timeoutMs: Long = AppConstants.CHECKIN_TIMEOUT_MS) {
