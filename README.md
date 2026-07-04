@@ -25,6 +25,7 @@
 - 签到执行窗口内使用 60 秒短时 wakelock，降低息屏后流程被系统打断的概率
 - 无障碍服务只监听 `com.sina.weibo`
 - 当前设备状态、下次重试时间、截止时间
+- 诊断摘要：微博 App 状态、自动化窗口、最后阶段、最近识别文本
 - 最近日志
 - 本机通知
 
@@ -52,7 +53,7 @@
 
 可以在 Release 页面下载：
 
-[GitHub Release 页面](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.3)
+[GitHub Release 页面](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.4)
 
 仓库内也包含当前 Debug APK：
 

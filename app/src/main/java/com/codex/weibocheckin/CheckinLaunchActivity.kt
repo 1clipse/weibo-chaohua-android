@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 class CheckinLaunchActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppPreferences.setLastStage(this, CheckinStage.LAUNCH_ACTIVITY_VISIBLE)
         val keyguardManager = getSystemService(KeyguardManager::class.java)
         if (DeviceIdleChecker.currentState(this) == DeviceIdleChecker.DeviceIdleState.LOCKED_SECURE) {
             stopForKeyguard("安全锁屏仍未解除")
@@ -47,6 +48,7 @@ class CheckinLaunchActivity : ComponentActivity() {
     private fun stopForKeyguard(reason: String) {
         AppPreferences.stopAutomation(this)
         CheckinScheduler.cancelWatchdog(this)
+        AppPreferences.setLastStage(this, CheckinStage.BLOCKED, reason)
         AppPreferences.setTodayStatus(this, CheckinStatus.NEEDS_ATTENTION, reason)
         AppPreferences.addLog(this, "启动前复检失败: $reason")
         NotificationHelper.notifyOpenCheckin(this, "需要解锁后继续签到", "手机仍处于锁屏状态，解锁后点按通知继续。")

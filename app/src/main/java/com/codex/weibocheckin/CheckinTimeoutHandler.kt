@@ -10,6 +10,7 @@ object CheckinTimeoutHandler {
         if (now < AppPreferences.automationDeadline(context)) return false
 
         AppPreferences.stopAutomation(context)
+        AppPreferences.setLastStage(context, CheckinStage.BLOCKED, source)
         AppPreferences.setTodayStatus(
             context,
             CheckinStatus.NEEDS_ATTENTION,

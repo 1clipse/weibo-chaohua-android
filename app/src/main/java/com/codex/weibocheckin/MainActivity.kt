@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,6 +60,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import java.time.Instant
+import java.time.ZoneId
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -170,6 +176,7 @@ private fun SettingsScreen(
     onDarkModeChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var refresh by remember { mutableStateOf(0) }
     var enabled by remember(refresh) { mutableStateOf(AppPreferences.isEnabled(context)) }
     var url by remember(refresh) { mutableStateOf(AppPreferences.chaohuaUrl(context)) }
@@ -179,6 +186,17 @@ private fun SettingsScreen(
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { refresh++ }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                CheckinTimeoutHandler.handleIfExpired(context, "页面恢复检查")
+                refresh++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val weiboStatus = WeiboAppChecker.currentStatus(context)
 
     SettingsContent(
         state = UiState(
@@ -197,6 +215,14 @@ private fun SettingsScreen(
             notificationsGranted = notificationPermissionGranted(context),
             batteryOptimizationIgnored = BatteryOptimizationChecker.isIgnoringBatteryOptimizations(context),
             deviceState = DeviceIdleChecker.currentState(context).label(),
+            weiboInstalled = weiboStatus.installed,
+            weiboVersion = weiboStatus.versionName,
+            weiboCanOpenUrl = weiboStatus.canOpenConfiguredUrl,
+            automationActive = AppPreferences.automationActive(context),
+            automationDeadline = AppPreferences.automationDeadline(context),
+            lastStage = AppPreferences.lastStage(context),
+            lastStageAt = AppPreferences.lastStageAt(context),
+            lastAccessibilityPreview = AppPreferences.lastAccessibilityPreview(context),
             logs = AppPreferences.logs(context)
         ),
         onEnabledChange = { checked ->
@@ -424,6 +450,13 @@ private fun ResultPanel(state: UiState) {
         if (state.idleDeadline.isNotBlank()) {
             InfoRow("截止时间", displayStoredTime(state.idleDeadline))
         }
+        InfoRow("自动化", automationText(state.automationActive, state.automationDeadline))
+        if (state.lastStage.isNotBlank()) {
+            InfoRow("最后阶段", stageText(state.lastStage, state.lastStageAt))
+        }
+        if (state.lastAccessibilityPreview.isNotBlank()) {
+            InfoRow("最近识别", state.lastAccessibilityPreview)
+        }
     }
 }
 
@@ -499,6 +532,13 @@ private fun PermissionPanel(
             healthy = state.batteryOptimizationIgnored,
             action = "设置",
             onClick = onOpenBatteryOptimization
+        )
+        StatusRow(
+            label = "微博 App",
+            value = weiboStatusText(state),
+            healthy = state.weiboInstalled && state.weiboCanOpenUrl,
+            action = "检查",
+            onClick = {}
         )
     }
 }
@@ -859,6 +899,14 @@ private data class UiState(
     val notificationsGranted: Boolean,
     val batteryOptimizationIgnored: Boolean,
     val deviceState: String,
+    val weiboInstalled: Boolean,
+    val weiboVersion: String,
+    val weiboCanOpenUrl: Boolean,
+    val automationActive: Boolean,
+    val automationDeadline: Long,
+    val lastStage: String,
+    val lastStageAt: Long,
+    val lastAccessibilityPreview: String,
     val logs: List<String>
 )
 
@@ -878,6 +926,14 @@ private fun previewState(darkMode: Boolean) = UiState(
     notificationsGranted = false,
     batteryOptimizationIgnored = false,
     deviceState = "待机，可自动尝试",
+    weiboInstalled = true,
+    weiboVersion = "13.0.0",
+    weiboCanOpenUrl = true,
+    automationActive = true,
+    automationDeadline = System.currentTimeMillis() + 30_000L,
+    lastStage = "已请求打开微博",
+    lastStageAt = System.currentTimeMillis(),
+    lastAccessibilityPreview = "超话 / 签到",
     logs = listOf(
         "2026-07-02T10:00:00Z  手动测试触发",
         "2026-07-02T10:00:03Z  已打开微博超话，等待无障碍服务识别"
@@ -954,6 +1010,31 @@ private fun displayStoredTime(value: String): String =
     runCatching {
         LocalDateTime.parse(value).format(StoredTimeFormatter)
     }.getOrDefault(value)
+
+private fun displayEpochMillis(value: Long): String =
+    if (value <= 0L) "" else runCatching {
+        LocalDateTime.ofInstant(Instant.ofEpochMilli(value), ZoneId.systemDefault()).format(StoredTimeFormatter)
+    }.getOrDefault("")
+
+private fun automationText(active: Boolean, deadline: Long): String {
+    if (!active) return "未运行"
+    val remainingSeconds = ((deadline - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)
+    val deadlineText = displayEpochMillis(deadline)
+    return if (deadlineText.isBlank()) "运行中" else "运行中，约 ${remainingSeconds}s 后超时"
+}
+
+private fun stageText(stage: String, at: Long): String {
+    val atText = displayEpochMillis(at)
+    return if (atText.isBlank()) stage else "$stage · $atText"
+}
+
+private fun weiboStatusText(state: UiState): String =
+    when {
+        !state.weiboInstalled -> "未安装"
+        !state.weiboCanOpenUrl -> "URL 不可打开"
+        state.weiboVersion.isBlank() -> "已安装"
+        else -> "已安装 ${state.weiboVersion}"
+    }
 
 private fun notificationPermissionGranted(context: Context): Boolean =
     Build.VERSION.SDK_INT < 33 ||

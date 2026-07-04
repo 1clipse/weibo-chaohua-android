@@ -18,6 +18,7 @@ class WeiboAccessibilityService : AccessibilityService() {
             return
         }
         if (!AppPreferences.automationActive(this)) return
+        AppPreferences.setLastStage(this, CheckinStage.ACCESSIBILITY_EVENT_RECEIVED)
 
         val now = System.currentTimeMillis()
         if (now > AppPreferences.automationDeadline(this)) {
@@ -53,36 +54,39 @@ class WeiboAccessibilityService : AccessibilityService() {
         }
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != AppConstants.WEIBO_PACKAGE) return
+        AppPreferences.setLastStage(this, CheckinStage.ROOT_SEEN)
         val texts = mutableListOf<String>()
         collectTexts(root, texts)
+        val preview = texts.preview()
+        AppPreferences.setLastAccessibilityPreview(this, preview)
 
         when (CheckinTextClassifier.classify(texts)) {
             PageState.SUCCESS -> finish(
                 status = CheckinStatus.SUCCESS,
                 title = "微博超话签到完成",
                 notification = "已识别到签到成功。",
-                log = "成功: ${texts.preview()}",
+                log = "成功: $preview",
                 reason = ""
             )
             PageState.ALREADY_DONE -> finish(
                 status = CheckinStatus.ALREADY_DONE,
                 title = "微博超话今日已签到",
                 notification = "已识别到今天已经签过到。",
-                log = "已签到: ${texts.preview()}",
+                log = "已签到: $preview",
                 reason = ""
             )
             PageState.RISK -> finish(
                 status = CheckinStatus.NEEDS_ATTENTION,
                 title = "微博签到需要处理",
                 notification = "检测到登录、验证码或安全验证，请手动处理。",
-                log = "阻断: ${texts.preview()}",
+                log = "阻断: $preview",
                 reason = "检测到登录、验证码或安全验证"
             )
             PageState.FAILED -> finish(
                 status = CheckinStatus.FAILED,
                 title = "微博签到失败",
                 notification = "微博页面提示签到失败，请手动确认。",
-                log = "失败: ${texts.preview()}",
+                log = "失败: $preview",
                 reason = "微博页面提示签到失败"
             )
             PageState.READY_TO_CLICK -> {
@@ -93,6 +97,7 @@ class WeiboAccessibilityService : AccessibilityService() {
                 if (clicked) {
                     lastClickAt = now
                     AppPreferences.setTodayStatus(this, CheckinStatus.RUNNING)
+                    AppPreferences.setLastStage(this, CheckinStage.CLICK_SENT)
                     AppPreferences.addLog(this, "已点击签到按钮")
                 }
             }
@@ -102,6 +107,7 @@ class WeiboAccessibilityService : AccessibilityService() {
 
     private fun finish(status: CheckinStatus, title: String, notification: String, log: String, reason: String) {
         AppPreferences.addLog(this, log)
+        AppPreferences.setLastStage(this, CheckinStage.FINISHED, status.name)
         AppPreferences.setTodayStatus(this, status, reason)
         CheckinScheduler.cancelRetry(this)
         CheckinScheduler.cancelWatchdog(this)

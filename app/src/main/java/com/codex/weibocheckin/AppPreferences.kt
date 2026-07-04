@@ -19,6 +19,9 @@ object AppPreferences {
     private const val KEY_IDLE_DEADLINE = "idle_deadline"
     private const val KEY_FAILURE_REASON = "failure_reason"
     private const val KEY_IDLE_BLOCKER_REASON = "idle_blocker_reason"
+    private const val KEY_LAST_STAGE = "last_stage"
+    private const val KEY_LAST_STAGE_AT = "last_stage_at"
+    private const val KEY_LAST_ACCESSIBILITY_PREVIEW = "last_accessibility_preview"
 
     fun isEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, false)
@@ -112,6 +115,27 @@ object AppPreferences {
     fun automationDeadline(context: Context): Long =
         prefs(context).getLong(KEY_DEADLINE, 0L)
 
+    fun setLastStage(context: Context, stage: CheckinStage, detail: String = "") {
+        val value = if (detail.isBlank()) stage.label else "${stage.label}: $detail"
+        prefs(context).edit()
+            .putString(KEY_LAST_STAGE, value)
+            .putLong(KEY_LAST_STAGE_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun lastStage(context: Context): String =
+        prefs(context).getString(KEY_LAST_STAGE, "").orEmpty()
+
+    fun lastStageAt(context: Context): Long =
+        prefs(context).getLong(KEY_LAST_STAGE_AT, 0L)
+
+    fun setLastAccessibilityPreview(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_LAST_ACCESSIBILITY_PREVIEW, value.take(180)).apply()
+    }
+
+    fun lastAccessibilityPreview(context: Context): String =
+        prefs(context).getString(KEY_LAST_ACCESSIBILITY_PREVIEW, "").orEmpty()
+
     fun addLog(context: Context, message: String) {
         val line = "${Instant.now()}  $message"
         val current = logs(context).toMutableList()
@@ -137,4 +161,17 @@ enum class CheckinStatus {
     ALREADY_DONE,
     FAILED,
     NEEDS_ATTENTION
+}
+
+enum class CheckinStage(val label: String) {
+    ALARM_FIRED("闹钟已触发"),
+    PREFLIGHT_WAITING("预检查等待"),
+    LAUNCH_ACTIVITY_STARTED("启动中转页"),
+    LAUNCH_ACTIVITY_VISIBLE("中转页已打开"),
+    WEIBO_INTENT_SENT("已请求打开微博"),
+    ACCESSIBILITY_EVENT_RECEIVED("收到微博无障碍事件"),
+    ROOT_SEEN("已读取微博页面"),
+    CLICK_SENT("已点击签到"),
+    FINISHED("流程已结束"),
+    BLOCKED("流程被阻断")
 }

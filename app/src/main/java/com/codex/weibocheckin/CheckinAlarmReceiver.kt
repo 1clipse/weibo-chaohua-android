@@ -30,14 +30,17 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
 
         when (action) {
             AppConstants.ACTION_START_CHECKIN -> {
+                AppPreferences.setLastStage(context, CheckinStage.ALARM_FIRED)
                 AppPreferences.addLog(context, "定时任务触发")
                 AppPreferences.setTodayStatus(context, CheckinStatus.WAITING_FOR_IDLE)
                 AppPreferences.setIdleBlockerReason(context, null)
             }
             AppConstants.ACTION_CONTINUE_CHECKIN -> {
+                AppPreferences.setLastStage(context, CheckinStage.ALARM_FIRED, "通知继续")
                 AppPreferences.addLog(context, "通知继续触发")
             }
             else -> {
+                AppPreferences.setLastStage(context, CheckinStage.ALARM_FIRED, "等待空闲重试")
                 AppPreferences.addLog(context, "等待空闲重试触发")
             }
         }
@@ -53,6 +56,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         }
 
         if (!AccessibilityStatusChecker.isServiceEnabled(context)) {
+            AppPreferences.setLastStage(context, CheckinStage.BLOCKED, "无障碍服务未开启")
             requestAttentionOrRetry(
                 context = context,
                 now = now,
@@ -89,6 +93,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         AppPreferences.startAutomation(context)
         CheckinScheduler.scheduleWatchdog(context)
         CheckinWakeLock.acquire(context)
+        AppPreferences.setLastStage(context, CheckinStage.LAUNCH_ACTIVITY_STARTED)
         AppPreferences.addLog(context, "检测到待机或非安全锁屏，开始签到")
         val launchIntent = Intent(context, CheckinLaunchActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -97,6 +102,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         }.onFailure {
             CheckinScheduler.cancelWatchdog(context)
             AppPreferences.stopAutomation(context)
+            AppPreferences.setLastStage(context, CheckinStage.BLOCKED, "中转页启动失败")
             AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, "系统阻止启动签到流程")
             AppPreferences.addLog(context, "启动签到流程失败: ${it.message}")
             NotificationHelper.notifyOpenCheckin(context, "微博签到需要继续", "系统阻止自动打开微博。点按通知可重新预检查后继续。")
@@ -112,6 +118,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         }
 
         AppPreferences.setIdleBlockerReason(context, "23:00 前手机一直处于使用状态")
+        AppPreferences.setLastStage(context, CheckinStage.PREFLIGHT_WAITING, "手机正在使用")
         AppPreferences.setTodayStatus(context, CheckinStatus.WAITING_FOR_IDLE)
         CheckinScheduler.scheduleRetry(context, nextRetry)
     }
@@ -133,6 +140,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         }
 
         AppPreferences.setIdleBlockerReason(context, deadlineReasonFor(reason))
+        AppPreferences.setLastStage(context, CheckinStage.BLOCKED, reason)
         AppPreferences.setTodayStatus(context, CheckinStatus.NEEDS_ATTENTION, reason)
         AppPreferences.addLog(context, logMessage)
         if (canContinueFromNotification) {
@@ -148,6 +156,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
     private fun failBecauseDeadlineReached(context: Context, blockerReason: String) {
         CheckinScheduler.cancelRetry(context)
         AppPreferences.setIdleBlockerReason(context, null)
+        AppPreferences.setLastStage(context, CheckinStage.FINISHED, blockerReason)
         AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, blockerReason)
         AppPreferences.addLog(context, "今日未自动签到: $blockerReason")
         NotificationHelper.notify(context, "今日未自动签到", "$blockerReason。请手动处理微博超话签到。")
