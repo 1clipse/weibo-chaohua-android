@@ -39,17 +39,20 @@ $env:ANDROID_SDK_ROOT = $AndroidSdkRoot
 Push-Location $ProjectRoot
 try {
   "sdk.dir=$($AndroidSdkRoot.Replace('\', '\\'))" | Set-Content -Encoding ASCII (Join-Path $ProjectRoot "local.properties")
+  $apk = Join-Path $ProjectRoot "app\build\outputs\apk\debug\app-debug.apk"
+  $copiedApk = Join-Path $ApkOutDir "weibo-chaohua-checkin-debug.apk"
+  Remove-Item -Force -ErrorAction SilentlyContinue $apk, $copiedApk
+
   & .\gradlew.bat testDebugUnitTest assembleDebug --no-daemon
   if ($LASTEXITCODE -ne 0) {
     throw "Gradle build failed with exit code $LASTEXITCODE"
   }
 
-  $apk = Join-Path $ProjectRoot "app\build\outputs\apk\debug\app-debug.apk"
   if (-not (Test-Path $apk)) {
     throw "APK was not created at $apk"
   }
-  Copy-Item -Force $apk (Join-Path $ApkOutDir "weibo-chaohua-checkin-debug.apk")
-  Write-Host "APK copied to: $(Join-Path $ApkOutDir "weibo-chaohua-checkin-debug.apk")"
+  Copy-Item -Force $apk $copiedApk
+  Write-Host "APK copied to: $copiedApk"
 }
 finally {
   Pop-Location

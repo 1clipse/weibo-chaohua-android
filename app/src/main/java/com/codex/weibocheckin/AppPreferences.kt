@@ -2,6 +2,7 @@ package com.codex.weibocheckin
 
 import android.content.Context
 import java.time.Instant
+import java.time.LocalDateTime
 
 object AppPreferences {
     private const val NAME = "weibo_checkin_prefs"
@@ -22,6 +23,8 @@ object AppPreferences {
     private const val KEY_LAST_STAGE = "last_stage"
     private const val KEY_LAST_STAGE_AT = "last_stage_at"
     private const val KEY_LAST_ACCESSIBILITY_PREVIEW = "last_accessibility_preview"
+    private const val KEY_TEMPORARY_TEST_AT = "temporary_test_at"
+    private const val KEY_NEXT_DAILY_SCHEDULED_AT = "next_daily_scheduled_at"
 
     fun isEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, false)
@@ -38,13 +41,14 @@ object AppPreferences {
     }
 
     fun hour(context: Context): Int =
-        prefs(context).getInt(KEY_HOUR, AppConstants.DEFAULT_HOUR)
+        normalizedTime(context).first
 
     fun minute(context: Context): Int =
-        prefs(context).getInt(KEY_MINUTE, AppConstants.DEFAULT_MINUTE)
+        normalizedTime(context).second
 
     fun setTime(context: Context, hour: Int, minute: Int) {
-        prefs(context).edit().putInt(KEY_HOUR, hour).putInt(KEY_MINUTE, minute).apply()
+        val (safeHour, safeMinute) = ScheduleTimePolicy.normalized(hour, minute)
+        prefs(context).edit().putInt(KEY_HOUR, safeHour).putInt(KEY_MINUTE, safeMinute).apply()
     }
 
     fun darkMode(context: Context): Boolean =
@@ -95,10 +99,37 @@ object AppPreferences {
     fun idleBlockerReason(context: Context): String =
         prefs(context).getString(KEY_IDLE_BLOCKER_REASON, "").orEmpty()
 
+    fun setTemporaryTestAt(context: Context, value: String?) {
+        prefs(context).edit().putString(KEY_TEMPORARY_TEST_AT, value.orEmpty()).apply()
+    }
+
+    fun temporaryTestAt(context: Context): String =
+        prefs(context).getString(KEY_TEMPORARY_TEST_AT, "").orEmpty()
+
+    fun setNextDailyScheduledAt(context: Context, value: String?) {
+        prefs(context).edit().putString(KEY_NEXT_DAILY_SCHEDULED_AT, value.orEmpty()).apply()
+    }
+
+    fun nextDailyScheduledAt(context: Context): String =
+        prefs(context).getString(KEY_NEXT_DAILY_SCHEDULED_AT, "").orEmpty()
+
+    fun clearDeferredCheckinState(context: Context, clearTemporaryTest: Boolean = true) {
+        val editor = prefs(context).edit()
+            .remove(KEY_NEXT_RETRY)
+            .remove(KEY_IDLE_DEADLINE)
+            .remove(KEY_IDLE_BLOCKER_REASON)
+        if (clearTemporaryTest) {
+            editor.remove(KEY_TEMPORARY_TEST_AT)
+        }
+        editor.apply()
+    }
+
     fun startAutomation(context: Context, timeoutMs: Long = AppConstants.CHECKIN_TIMEOUT_MS) {
         prefs(context).edit()
             .putBoolean(KEY_ACTIVE, true)
             .putLong(KEY_DEADLINE, System.currentTimeMillis() + timeoutMs)
+            .putString(KEY_FAILURE_REASON, "")
+            .remove(KEY_LAST_ACCESSIBILITY_PREVIEW)
             .apply()
     }
 
@@ -149,8 +180,48 @@ object AppPreferences {
             .filter { it.isNotBlank() }
             .toList()
 
+    fun clearLogs(context: Context) {
+        prefs(context).edit().remove(KEY_LOGS).apply()
+    }
+
+    fun clearDiagnostics(context: Context, now: LocalDateTime = LocalDateTime.now()): Boolean {
+        if (!DiagnosticResetPolicy.canReset(automationActive(context))) return false
+        val keepDeferredState = DiagnosticResetPolicy.shouldKeepDeferredState(
+            todayStatus = todayStatus(context),
+            nextRetry = nextRetry(context),
+            idleDeadline = idleDeadline(context),
+            now = now
+        )
+        val editor = prefs(context).edit()
+            .remove(KEY_LOGS)
+            .remove(KEY_LAST_ATTEMPT)
+            .remove(KEY_FAILURE_REASON)
+            .remove(KEY_LAST_STAGE)
+            .remove(KEY_LAST_STAGE_AT)
+            .remove(KEY_LAST_ACCESSIBILITY_PREVIEW)
+        if (keepDeferredState) {
+            editor.putString(KEY_FAILURE_REASON, "")
+        } else {
+            editor
+                .remove(KEY_NEXT_RETRY)
+                .remove(KEY_IDLE_DEADLINE)
+                .remove(KEY_IDLE_BLOCKER_REASON)
+                .remove(KEY_TEMPORARY_TEST_AT)
+                .remove(KEY_NEXT_DAILY_SCHEDULED_AT)
+                .putString(KEY_TODAY_STATUS, CheckinStatus.NOT_RUN.name)
+        }
+        editor.apply()
+        return true
+    }
+
     private fun prefs(context: Context) =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+
+    private fun normalizedTime(context: Context): Pair<Int, Int> {
+        val storedHour = prefs(context).getInt(KEY_HOUR, AppConstants.DEFAULT_HOUR)
+        val storedMinute = prefs(context).getInt(KEY_MINUTE, AppConstants.DEFAULT_MINUTE)
+        return ScheduleTimePolicy.normalized(storedHour, storedMinute)
+    }
 }
 
 enum class CheckinStatus {

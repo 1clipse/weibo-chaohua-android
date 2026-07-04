@@ -3,7 +3,6 @@ package com.codex.weibocheckin
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,22 +44,25 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -67,6 +70,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -118,7 +123,6 @@ private val DarkScheme = darkColorScheme(
 
 private val PanelShape = RoundedCornerShape(10.dp)
 private val CompactShape = RoundedCornerShape(8.dp)
-private val NextRunFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val StoredTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 private val LogTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
 
@@ -144,10 +148,13 @@ private fun SettingsScreenDayPreview() {
             onUrlChange = {},
             onTimeChange = {},
             onManualTest = {},
+            onScheduleTest = {},
             onOpenAccessibility = {},
             onOpenExactAlarm = {},
             onOpenNotification = {},
-            onOpenBatteryOptimization = {}
+            onOpenFullScreenIntent = {},
+            onOpenBatteryOptimization = {},
+            onClearLogs = {}
         )
     }
 }
@@ -163,10 +170,13 @@ private fun SettingsScreenNightPreview() {
             onUrlChange = {},
             onTimeChange = {},
             onManualTest = {},
+            onScheduleTest = {},
             onOpenAccessibility = {},
             onOpenExactAlarm = {},
             onOpenNotification = {},
-            onOpenBatteryOptimization = {}
+            onOpenFullScreenIntent = {},
+            onOpenBatteryOptimization = {},
+            onClearLogs = {}
         )
     }
 }
@@ -191,11 +201,21 @@ private fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 CheckinTimeoutHandler.handleIfExpired(context, "页面恢复检查")
+                disableDailyIfBlockingPrerequisiteMissing(context)
                 refresh++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3_000L)
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                CheckinTimeoutHandler.handleIfExpired(context, "前台状态刷新")
+                refresh++
+            }
+        }
     }
     val weiboStatus = WeiboAppChecker.currentStatus(context)
 
@@ -208,12 +228,14 @@ private fun SettingsScreen(
             nextRun = nextRunText(context, enabled),
             todayStatus = AppPreferences.todayStatus(context),
             lastAttempt = AppPreferences.lastAttempt(context),
+            temporaryTestAt = AppPreferences.temporaryTestAt(context),
             nextRetry = AppPreferences.nextRetry(context),
             idleDeadline = AppPreferences.idleDeadline(context),
             failureReason = AppPreferences.failureReason(context),
             accessibilityEnabled = AccessibilityStatusChecker.isServiceEnabled(context),
             exactAlarmGranted = CheckinScheduler.canScheduleExact(context),
-            notificationsGranted = notificationPermissionGranted(context),
+            notificationsGranted = NotificationHelper.canNotify(context),
+            fullScreenIntentGranted = NotificationHelper.canUseLockscreenLaunch(context),
             batteryOptimizationIgnored = BatteryOptimizationChecker.isIgnoringBatteryOptimizations(context),
             deviceState = DeviceIdleChecker.currentState(context).label(),
             weiboInstalled = weiboStatus.installed,
@@ -227,9 +249,27 @@ private fun SettingsScreen(
             logs = AppPreferences.logs(context)
         ),
         onEnabledChange = { checked ->
-            enabled = checked
-            AppPreferences.setEnabled(context, checked)
-            if (checked) CheckinScheduler.scheduleNext(context) else CheckinScheduler.cancel(context)
+            if (checked && !CheckinScheduler.canScheduleExact(context)) {
+                enabled = false
+                AppPreferences.setEnabled(context, false)
+                CheckinScheduler.cancelDailySchedule(context)
+                AppPreferences.addLog(context, "每日签到未开启: 请先开启精确闹钟权限")
+                openExactAlarmSettings(context)
+            } else if (checked && !NotificationHelper.canNotify(context)) {
+                enabled = false
+                AppPreferences.setEnabled(context, false)
+                CheckinScheduler.cancelDailySchedule(context)
+                AppPreferences.addLog(context, "每日签到未开启: 请先开启通知权限")
+                if (Build.VERSION.SDK_INT >= 33) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    openNotificationSettings(context)
+                }
+            } else {
+                enabled = checked
+                AppPreferences.setEnabled(context, checked)
+                if (checked) CheckinScheduler.scheduleNext(context) else CheckinScheduler.cancel(context)
+            }
             refresh++
         },
         onDarkModeChange = onDarkModeChange,
@@ -246,8 +286,27 @@ private fun SettingsScreen(
             }
         },
         onManualTest = {
-            AppPreferences.addLog(context, "手动测试触发")
-            WeiboLauncher.startCheckin(context)
+            val currentWeiboStatus = WeiboAppChecker.currentStatus(context)
+            val blockers = manualTestBlockerLabels(
+                weiboInstalled = currentWeiboStatus.installed,
+                weiboCanOpenUrl = currentWeiboStatus.canOpenConfiguredUrl,
+                notificationsGranted = NotificationHelper.canNotify(context),
+                accessibilityEnabled = AccessibilityStatusChecker.isServiceEnabled(context)
+            )
+            if (blockers.isNotEmpty()) {
+                AppPreferences.addLog(context, "手动测试未启动: 还需处理 ${blockers.joinToString("、")}")
+            } else {
+                AppPreferences.addLog(context, "手动测试触发")
+                WeiboLauncher.startCheckin(context)
+            }
+            refresh++
+        },
+        onScheduleTest = {
+            if (AppPreferences.isEnabled(context)) {
+                CheckinScheduler.scheduleTemporaryTest(context)
+            } else {
+                AppPreferences.addLog(context, "临时定时测试未安排: 每日签到开关未开启")
+            }
             refresh++
         },
         onOpenAccessibility = {
@@ -263,8 +322,34 @@ private fun SettingsScreen(
                 openNotificationSettings(context)
             }
         },
+        onOpenFullScreenIntent = {
+            openFullScreenIntentSettings(context)
+        },
         onOpenBatteryOptimization = {
             openBatteryOptimizationSettings(context)
+        },
+        onClearLogs = {
+            if (AppPreferences.automationActive(context)) {
+                AppPreferences.addLog(context, "自动化运行中，暂不重置诊断")
+            } else {
+                val now = LocalDateTime.now()
+                if (!DiagnosticResetPolicy.shouldKeepDeferredState(
+                        todayStatus = AppPreferences.todayStatus(context),
+                        nextRetry = AppPreferences.nextRetry(context),
+                        idleDeadline = AppPreferences.idleDeadline(context),
+                        now = now
+                    )
+                ) {
+                    CheckinScheduler.cancelRetry(context)
+                    CheckinScheduler.cancelTemporaryTest(context)
+                }
+                if (!AppPreferences.clearDiagnostics(context, now)) {
+                    AppPreferences.addLog(context, "自动化运行中，暂不重置诊断")
+                } else if (AppPreferences.isEnabled(context)) {
+                    CheckinScheduler.scheduleNext(context)
+                }
+            }
+            refresh++
         }
     )
 }
@@ -277,10 +362,13 @@ private fun SettingsContent(
     onUrlChange: (String) -> Unit,
     onTimeChange: (String) -> Unit,
     onManualTest: () -> Unit,
+    onScheduleTest: () -> Unit,
     onOpenAccessibility: () -> Unit,
     onOpenExactAlarm: () -> Unit,
     onOpenNotification: () -> Unit,
-    onOpenBatteryOptimization: () -> Unit
+    onOpenFullScreenIntent: () -> Unit,
+    onOpenBatteryOptimization: () -> Unit,
+    onClearLogs: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.background,
@@ -312,6 +400,7 @@ private fun SettingsContent(
                     onOpenAccessibility = onOpenAccessibility,
                     onOpenExactAlarm = onOpenExactAlarm,
                     onOpenNotification = onOpenNotification,
+                    onOpenFullScreenIntent = onOpenFullScreenIntent,
                     onOpenBatteryOptimization = onOpenBatteryOptimization
                 )
             }
@@ -324,15 +413,10 @@ private fun SettingsContent(
                 )
             }
             item {
-                ActionPanel(state = state, onManualTest = onManualTest)
+                ActionPanel(state = state, onManualTest = onManualTest, onScheduleTest = onScheduleTest)
             }
             item {
-                Text(
-                    text = "最近日志",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                LogHeader(onClearLogs = onClearLogs)
             }
             if (state.logs.isEmpty()) {
                 item {
@@ -438,28 +522,51 @@ private fun StatePill(status: String) {
 
 @Composable
 private fun ResultPanel(state: UiState) {
+    val clipboardManager = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        copied = false
+    }
     Panel {
         SectionTitle("今日结果", "为避免打扰，会等手机空闲后再打开微博")
         StatusSummary(status = statusLabel(state.todayStatus), detail = statusDetail(state))
-        if (state.lastAttempt.isNotBlank()) {
-            InfoRow("最近尝试", displayStoredTime(state.lastAttempt))
-        }
+        InfoRow("最近尝试", state.lastAttempt.displayStoredTimeOr("尚未触发"))
+        InfoRow("临时测试", state.temporaryTestAt.displayStoredTimeOr("当前未安排"))
         InfoRow("当前设备", state.deviceState)
-        if (state.nextRetry.isNotBlank()) {
-            InfoRow("下次重试", displayStoredTime(state.nextRetry))
-        }
-        if (state.idleDeadline.isNotBlank()) {
-            InfoRow("截止时间", displayStoredTime(state.idleDeadline))
-        }
+        InfoRow("下次重试", state.nextRetry.displayStoredTimeOr("当前未安排"))
+        InfoRow("截止时间", state.idleDeadline.displayStoredTimeOr("到点后显示"))
         InfoRow("自动化", automationText(state.automationActive, state.automationDeadline))
-        if (state.lastStage.isNotBlank()) {
-            InfoRow("最后阶段", stageText(state.lastStage, state.lastStageAt))
+        InfoRow("最后阶段", if (state.lastStage.isBlank()) "暂无记录" else stageText(state.lastStage, state.lastStageAt))
+        InfoRow("最近识别", state.lastAccessibilityPreview.ifBlank { "本轮尚未读取微博页面" })
+        InfoRow("最近日志", state.logs.firstOrNull()?.let(::displayLogLine) ?: "暂无日志")
+        TextButton(
+            onClick = {
+                clipboardManager.setText(AnnotatedString(diagnosticText(state)))
+                copied = true
+            },
+            shape = CompactShape
+        ) {
+            Text(if (copied) "已复制诊断" else "复制诊断")
         }
-        if (state.lastAccessibilityPreview.isNotBlank()) {
-            InfoRow("最近识别", state.lastAccessibilityPreview)
-        }
-        state.logs.firstOrNull()?.let {
-            InfoRow("最近日志", displayLogLine(it))
+    }
+}
+
+@Composable
+private fun LogHeader(onClearLogs: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "最近日志",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        TextButton(onClick = onClearLogs, shape = CompactShape) {
+            Text("重置诊断")
         }
     }
 }
@@ -510,6 +617,7 @@ private fun PermissionPanel(
     onOpenAccessibility: () -> Unit,
     onOpenExactAlarm: () -> Unit,
     onOpenNotification: () -> Unit,
+    onOpenFullScreenIntent: () -> Unit,
     onOpenBatteryOptimization: () -> Unit
 ) {
     Panel {
@@ -523,7 +631,7 @@ private fun PermissionPanel(
         )
         StatusRow(
             label = "精确闹钟",
-            value = if (state.exactAlarmGranted) "可用" else "可能延迟",
+            value = if (state.exactAlarmGranted) "可用" else "未开启",
             healthy = state.exactAlarmGranted,
             action = "设置",
             onClick = onOpenExactAlarm
@@ -536,6 +644,13 @@ private fun PermissionPanel(
             onClick = onOpenNotification
         )
         StatusRow(
+            label = "锁屏启动",
+            value = if (state.fullScreenIntentGranted) "可用" else "受限制",
+            healthy = state.fullScreenIntentGranted,
+            action = "设置",
+            onClick = onOpenFullScreenIntent
+        )
+        StatusRow(
             label = "省电限制",
             value = if (state.batteryOptimizationIgnored) "已放行" else "可能拦截",
             healthy = state.batteryOptimizationIgnored,
@@ -546,8 +661,8 @@ private fun PermissionPanel(
             label = "微博 App",
             value = weiboStatusText(state),
             healthy = state.weiboInstalled && state.weiboCanOpenUrl,
-            action = "检查",
-            onClick = {}
+            action = null,
+            onClick = null
         )
     }
 }
@@ -585,15 +700,23 @@ private fun TimeWheelField(
     if (showPicker) {
         var selectedHour by remember(timeText) { mutableStateOf(initialHour) }
         var selectedMinute by remember(timeText) { mutableStateOf(initialMinute) }
+        var hourScrolling by remember(timeText) { mutableStateOf(false) }
+        var minuteScrolling by remember(timeText) { mutableStateOf(false) }
+        val canSave = !hourScrolling && !minuteScrolling
         AlertDialog(
             onDismissRequest = { showPicker = false },
             title = { Text("选择每日尝试时间") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "滚动后请点选数字，选中的时间会高亮显示。",
+                        "滚动数字，停在中间的时间会自动高亮。最晚可选 22:59，23:00 是当天截止时间。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "将保存 %02d:%02d".format(selectedHour, selectedMinute),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -601,9 +724,10 @@ private fun TimeWheelField(
                     ) {
                         TimeWheelColumn(
                             title = "小时",
-                            values = (0..23).toList(),
+                            values = AppConstants.SCHEDULABLE_HOURS.toList(),
                             selectedValue = selectedHour,
                             onValueSelected = { selectedHour = it },
+                            onScrollInProgressChange = { hourScrolling = it },
                             modifier = Modifier.weight(1f)
                         )
                         TimeWheelColumn(
@@ -611,6 +735,7 @@ private fun TimeWheelField(
                             values = (0..59).toList(),
                             selectedValue = selectedMinute,
                             onValueSelected = { selectedMinute = it },
+                            onScrollInProgressChange = { minuteScrolling = it },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -622,9 +747,10 @@ private fun TimeWheelField(
                         onTimeChange("%02d:%02d".format(selectedHour, selectedMinute))
                         showPicker = false
                     },
+                    enabled = canSave,
                     shape = CompactShape
                 ) {
-                    Text("保存高亮时间")
+                    Text(if (canSave) "保存时间" else "滚动中")
                 }
             },
             dismissButton = {
@@ -675,11 +801,27 @@ private fun TimeWheelColumn(
     values: List<Int>,
     selectedValue: Int,
     onValueSelected: (Int) -> Unit,
+    onScrollInProgressChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val paddedValues = remember(values) { listOf<Int?>(null, null) + values + listOf(null, null) }
+    val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (selectedValue - 2).coerceAtLeast(0)
+        initialFirstVisibleItemIndex = values.indexOf(selectedValue).coerceAtLeast(0)
     )
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+    val centeredValue by remember(paddedValues, listState) {
+        derivedStateOf {
+            paddedValues[(listState.firstVisibleItemIndex + 2).coerceIn(paddedValues.indices)]
+        }
+    }
+
+    LaunchedEffect(centeredValue) {
+        centeredValue?.let(onValueSelected)
+    }
+    LaunchedEffect(listState.isScrollInProgress) {
+        onScrollInProgressChange(listState.isScrollInProgress)
+    }
 
     Column(
         modifier = modifier,
@@ -699,20 +841,33 @@ private fun TimeWheelColumn(
         ) {
             LazyColumn(
                 state = listState,
+                flingBehavior = flingBehavior,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(216.dp),
                 contentPadding = PaddingValues(vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(values) { value ->
-                    val selected = value == selectedValue
+                items(paddedValues) { value ->
+                    if (value == null) {
+                        Spacer(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp)
+                        )
+                        return@items
+                    }
+                    val selected = value == centeredValue
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 6.dp)
                             .height(38.dp)
-                            .clickable { onValueSelected(value) },
+                            .clickable {
+                                coroutineScope.launch {
+                                    listState.animateScrollToItem(values.indexOf(value).coerceAtLeast(0))
+                                }
+                            },
                         shape = CompactShape,
                         color = if (selected) {
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
@@ -745,12 +900,17 @@ private fun TimeWheelColumn(
 }
 
 @Composable
-private fun ActionPanel(state: UiState, onManualTest: () -> Unit) {
+private fun ActionPanel(
+    state: UiState,
+    onManualTest: () -> Unit,
+    onScheduleTest: () -> Unit
+) {
     val blockers = manualTestBlockers(state)
     val warnings = manualTestWarnings(state)
     val canTest = blockers.isEmpty() && !state.automationActive
+    val canScheduleTest = canTest && state.enabled
     Panel {
-        SectionTitle("手动测试", "准备完成后再打开微博验证签到流程")
+        SectionTitle("测试", "可立即测试，也可 2 分钟后走一次真实定时链路")
         if (blockers.isNotEmpty()) {
             Text(
                 "还需处理：${blockers.joinToString("、")}",
@@ -765,7 +925,7 @@ private fun ActionPanel(state: UiState, onManualTest: () -> Unit) {
             )
         } else {
             Text(
-                "已具备手动测试条件。",
+                if (state.enabled) "已具备测试条件。" else "如需测试定时链路，请先开启每日签到。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -781,6 +941,17 @@ private fun ActionPanel(state: UiState, onManualTest: () -> Unit) {
             onClick = onManualTest
         ) {
             Text(if (state.automationActive) "测试运行中" else "手动测试签到")
+        }
+        TextButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .semantics { contentDescription = "安排 2 分钟后临时定时测试" },
+            shape = CompactShape,
+            enabled = canScheduleTest,
+            onClick = onScheduleTest
+        ) {
+            Text("2 分钟后定时测试")
         }
     }
 }
@@ -839,8 +1010,8 @@ private fun StatusRow(
     label: String,
     value: String,
     healthy: Boolean,
-    action: String,
-    onClick: () -> Unit
+    action: String?,
+    onClick: (() -> Unit)?
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -861,8 +1032,10 @@ private fun StatusRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        TextButton(onClick = onClick, shape = CompactShape) {
-            Text(action)
+        if (action != null && onClick != null) {
+            TextButton(onClick = onClick, shape = CompactShape) {
+                Text(action)
+            }
         }
     }
 }
@@ -929,12 +1102,14 @@ private data class UiState(
     val nextRun: String,
     val todayStatus: String,
     val lastAttempt: String,
+    val temporaryTestAt: String,
     val nextRetry: String,
     val idleDeadline: String,
     val failureReason: String,
     val accessibilityEnabled: Boolean,
     val exactAlarmGranted: Boolean,
     val notificationsGranted: Boolean,
+    val fullScreenIntentGranted: Boolean,
     val batteryOptimizationIgnored: Boolean,
     val deviceState: String,
     val weiboInstalled: Boolean,
@@ -956,12 +1131,14 @@ private fun previewState(darkMode: Boolean) = UiState(
     nextRun = "下次尝试: 2026-07-03 10:00",
     todayStatus = CheckinStatus.WAITING_FOR_IDLE.name,
     lastAttempt = "2026-07-02T10:00",
+    temporaryTestAt = "2026-07-02T10:02",
     nextRetry = "2026-07-02T10:15",
     idleDeadline = "2026-07-02T23:00",
     failureReason = "",
     accessibilityEnabled = true,
     exactAlarmGranted = true,
     notificationsGranted = false,
+    fullScreenIntentGranted = true,
     batteryOptimizationIgnored = false,
     deviceState = "待机，可自动尝试",
     weiboInstalled = true,
@@ -1010,7 +1187,7 @@ private fun statusColorFromLabel(label: String): Color =
 private fun statusDetail(state: UiState): String =
     when (runCatching { CheckinStatus.valueOf(state.todayStatus) }.getOrDefault(CheckinStatus.NOT_RUN)) {
         CheckinStatus.NOT_RUN -> "到点后会先判断手机是否空闲。"
-        CheckinStatus.WAITING_FOR_IDLE -> "手机正在使用，暂不跳转微博，会等空闲后重试。"
+        CheckinStatus.WAITING_FOR_IDLE -> "手机正在使用，暂不跳转微博；锁屏或息屏后会尽快重试。"
         CheckinStatus.RUNNING -> "已检测到手机空闲，正在打开微博尝试签到。"
         CheckinStatus.SUCCESS -> "今天的超话签到已经完成。"
         CheckinStatus.ALREADY_DONE -> "微博页面显示今天已经签过到。"
@@ -1023,18 +1200,15 @@ private fun parseTime(value: String): Pair<Int, Int>? {
     if (parts.size != 2) return null
     val hour = parts[0].toIntOrNull() ?: return null
     val minute = parts[1].toIntOrNull() ?: return null
-    if (hour !in 0..23 || minute !in 0..59) return null
+    if (!ScheduleTimePolicy.isAllowed(hour, minute)) return null
     return hour to minute
 }
 
 private fun nextRunText(context: Context, enabled: Boolean): String {
     if (!enabled) return "未启用"
-    val next = ScheduleCalculator.nextDailyRun(
-        LocalDateTime.now(),
-        AppPreferences.hour(context),
-        AppPreferences.minute(context)
-    )
-    return "下次尝试: ${next.format(NextRunFormatter)}"
+    val scheduledAt = AppPreferences.nextDailyScheduledAt(context)
+    if (scheduledAt.isBlank()) return "尚未安排"
+    return "下次尝试: ${displayStoredTime(scheduledAt)}"
 }
 
 private fun DeviceIdleChecker.DeviceIdleState.label(): String =
@@ -1048,6 +1222,9 @@ private fun displayStoredTime(value: String): String =
     runCatching {
         LocalDateTime.parse(value).format(StoredTimeFormatter)
     }.getOrDefault(value)
+
+private fun String.displayStoredTimeOr(fallback: String): String =
+    if (isBlank()) fallback else displayStoredTime(this)
 
 private fun displayEpochMillis(value: Long): String =
     if (value <= 0L) "" else runCatching {
@@ -1083,40 +1260,133 @@ private fun weiboStatusText(state: UiState): String =
         else -> "已安装 ${state.weiboVersion}"
     }
 
-private fun manualTestBlockers(state: UiState): List<String> = buildList {
-    if (!state.weiboInstalled) add("安装微博 App")
-    if (state.weiboInstalled && !state.weiboCanOpenUrl) add("检查超话 URL")
-    if (!state.accessibilityEnabled) add("开启无障碍")
+private fun diagnosticText(state: UiState): String {
+    val lines = mutableListOf<String>()
+    lines += "微博超话签到助手诊断"
+    lines += "App 版本: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+    lines += "今日状态: ${statusLabel(state.todayStatus)}"
+    lines += "失败原因: ${state.failureReason.ifBlank { "无" }}"
+    lines += "当前设备: ${state.deviceState}"
+    lines += "微博 App: ${weiboStatusText(state)}"
+    lines += "无障碍: ${if (state.accessibilityEnabled) "已开启" else "未开启"}"
+    lines += "精确闹钟: ${if (state.exactAlarmGranted) "可用" else "未开启"}"
+    lines += "通知: ${if (state.notificationsGranted) "已开启" else "未开启"}"
+    lines += "锁屏启动: ${if (state.fullScreenIntentGranted) "可用" else "受限制"}"
+    lines += "省电限制: ${if (state.batteryOptimizationIgnored) "已放行" else "可能拦截"}"
+    lines += "自动化: ${automationText(state.automationActive, state.automationDeadline)}"
+    lines += "最后阶段: ${stageText(state.lastStage.ifBlank { "无" }, state.lastStageAt)}"
+    lines += "最近识别: ${state.lastAccessibilityPreview.ifBlank { "无" }}"
+    if (state.lastAttempt.isNotBlank()) lines += "最近尝试: ${displayStoredTime(state.lastAttempt)}"
+    if (state.temporaryTestAt.isNotBlank()) lines += "临时测试: ${displayStoredTime(state.temporaryTestAt)}"
+    if (state.nextRetry.isNotBlank()) lines += "下次重试: ${displayStoredTime(state.nextRetry)}"
+    if (state.idleDeadline.isNotBlank()) lines += "截止时间: ${displayStoredTime(state.idleDeadline)}"
+    lines += "最近日志:"
+    val logs = state.logs.take(8)
+    if (logs.isEmpty()) {
+        lines += "无"
+    } else {
+        lines += logs.map(::displayLogLine)
+    }
+    return lines.joinToString("\n")
 }
 
+private fun manualTestBlockers(state: UiState): List<String> =
+    manualTestBlockerLabels(
+        weiboInstalled = state.weiboInstalled,
+        weiboCanOpenUrl = state.weiboCanOpenUrl,
+        notificationsGranted = state.notificationsGranted,
+        accessibilityEnabled = state.accessibilityEnabled
+    )
+
+private fun manualTestBlockerLabels(
+    weiboInstalled: Boolean,
+    weiboCanOpenUrl: Boolean,
+    notificationsGranted: Boolean,
+    accessibilityEnabled: Boolean
+): List<String> =
+    CheckinPrerequisitePolicy.blockers(
+        weiboInstalled = weiboInstalled,
+        weiboCanOpenUrl = weiboCanOpenUrl,
+        notificationsGranted = notificationsGranted,
+        accessibilityEnabled = accessibilityEnabled
+    )
+
 private fun manualTestWarnings(state: UiState): List<String> = buildList {
-    if (!state.notificationsGranted) add("开启通知")
     if (!state.batteryOptimizationIgnored) add("放行省电限制")
+    if (!state.fullScreenIntentGranted) add("允许锁屏启动")
     if (!state.exactAlarmGranted) add("开启精确闹钟")
     if (state.deviceState.contains("安全锁屏")) add("先解锁手机")
 }
 
-private fun notificationPermissionGranted(context: Context): Boolean =
-    Build.VERSION.SDK_INT < 33 ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+private fun disableDailyIfBlockingPrerequisiteMissing(context: Context) {
+    if (!AppPreferences.isEnabled(context)) return
+    val reason = when {
+        !CheckinScheduler.canScheduleExact(context) -> "精确闹钟权限未开启"
+        !NotificationHelper.canNotify(context) -> "通知权限未开启"
+        else -> return
+    }
+    AppPreferences.setEnabled(context, false)
+    CheckinScheduler.cancelDailySchedule(context)
+    CheckinScheduler.cancelRetry(context)
+    CheckinScheduler.cancelTemporaryTest(context)
+    AppPreferences.setNextDailyScheduledAt(context, null)
+    AppPreferences.addLog(context, "每日签到已关闭: $reason")
+}
 
 private fun openExactAlarmSettings(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        context.startActivity(
-            Intent(
-                Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+        val opened = runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.isSuccess
+        if (!opened) openAppDetailsSettings(context)
     }
 }
 
 private fun openNotificationSettings(context: Context) {
-    context.startActivity(
-        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    )
+    val opened = runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.isSuccess
+    if (!opened) {
+        openAppDetailsSettings(context)
+    }
+}
+
+private fun openFullScreenIntentSettings(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        val opened = runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.isSuccess
+        if (!opened) openNotificationSettings(context)
+    } else {
+        openNotificationSettings(context)
+    }
+}
+
+private fun openAppDetailsSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.onFailure {
+        AppPreferences.addLog(context, "打开系统设置失败: ${it.message}")
+    }
 }
 
 private fun openBatteryOptimizationSettings(context: Context) {
@@ -1127,9 +1397,13 @@ private fun openBatteryOptimizationSettings(context: Context) {
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     val opened = runCatching { context.startActivity(requestIntent) }.isSuccess
     if (!opened) {
-        context.startActivity(
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+        runCatching {
+            context.startActivity(
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure {
+            openAppDetailsSettings(context)
+        }
     }
 }

@@ -1,6 +1,10 @@
 package com.codex.weibocheckin
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -8,7 +12,14 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 class WeiboAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
+    private val idleSignalReceiver = IdleSignalReceiver()
     private var lastClickAt = 0L
+    private var idleSignalReceiverRegistered = false
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        registerIdleSignalReceiver()
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.packageName?.toString() != AppConstants.WEIBO_PACKAGE) return
@@ -22,13 +33,7 @@ class WeiboAccessibilityService : AccessibilityService() {
 
         val now = System.currentTimeMillis()
         if (now > AppPreferences.automationDeadline(this)) {
-            finish(
-                status = CheckinStatus.FAILED,
-                title = "微博签到超时",
-                notification = "45 秒内没有确认签到状态。",
-                log = "超时: 未识别到签到结果",
-                reason = "45 秒内没有确认签到状态"
-            )
+            CheckinTimeoutHandler.handleIfExpired(this, "无障碍事件超时")
             return
         }
 
@@ -43,13 +48,7 @@ class WeiboAccessibilityService : AccessibilityService() {
     private fun scanCurrentWindow() {
         if (!AppPreferences.automationActive(this)) return
         if (isPastDeadline()) {
-            finish(
-                status = CheckinStatus.FAILED,
-                title = "微博签到超时",
-                notification = "45 秒内没有确认签到状态。",
-                log = "超时: 扫描前已超过 45 秒截止时间",
-                reason = "45 秒内没有确认签到状态"
-            )
+            CheckinTimeoutHandler.handleIfExpired(this, "无障碍扫描超时")
             return
         }
         val root = rootInActiveWindow ?: return
@@ -76,13 +75,16 @@ class WeiboAccessibilityService : AccessibilityService() {
                 log = "已签到: $preview",
                 reason = ""
             )
-            PageState.RISK -> finish(
-                status = CheckinStatus.NEEDS_ATTENTION,
-                title = "微博签到需要处理",
-                notification = "检测到登录、验证码或安全验证，请手动处理。",
-                log = "阻断: ${importantPreview.ifBlank { preview }} / 页面: $preview",
-                reason = "检测到登录、验证码或安全验证"
-            )
+            PageState.RISK -> {
+                val riskReason = CheckinTextClassifier.riskReason(texts)
+                finish(
+                    status = CheckinStatus.NEEDS_ATTENTION,
+                    title = "微博签到需要处理",
+                    notification = "$riskReason，请手动处理。",
+                    log = "阻断: $riskReason / ${importantPreview.ifBlank { preview }} / 页面: $preview",
+                    reason = riskReason
+                )
+            }
             PageState.FAILED -> finish(
                 status = CheckinStatus.FAILED,
                 title = "微博签到失败",
@@ -106,12 +108,19 @@ class WeiboAccessibilityService : AccessibilityService() {
         }
     }
 
+    override fun onDestroy() {
+        handler.removeCallbacks(scanRunnable)
+        unregisterIdleSignalReceiver()
+        super.onDestroy()
+    }
+
     private fun finish(status: CheckinStatus, title: String, notification: String, log: String, reason: String) {
         AppPreferences.addLog(this, log)
         AppPreferences.setLastStage(this, CheckinStage.FINISHED, status.name)
         AppPreferences.setTodayStatus(this, status, reason)
         CheckinScheduler.cancelRetry(this)
         CheckinScheduler.cancelWatchdog(this)
+        AppPreferences.clearDeferredCheckinState(this)
         AppPreferences.stopAutomation(this)
         NotificationHelper.notify(this, title, notification)
     }
@@ -180,5 +189,23 @@ class WeiboAccessibilityService : AccessibilityService() {
             .take(4)
             .joinToString(" / ")
             .take(180)
+    }
+
+    private fun registerIdleSignalReceiver() {
+        if (idleSignalReceiverRegistered) return
+        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(idleSignalReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(idleSignalReceiver, filter)
+        }
+        idleSignalReceiverRegistered = true
+    }
+
+    private fun unregisterIdleSignalReceiver() {
+        if (!idleSignalReceiverRegistered) return
+        runCatching { unregisterReceiver(idleSignalReceiver) }
+        idleSignalReceiverRegistered = false
     }
 }
