@@ -10,6 +10,7 @@ object WeiboLauncher {
         AppPreferences.setNextRetry(context, null)
         AppPreferences.startAutomation(context)
         CheckinScheduler.scheduleWatchdog(context)
+        CheckinWakeLock.acquire(context)
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(AppPreferences.chaohuaUrl(context))).apply {
             setPackage(AppConstants.WEIBO_PACKAGE)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

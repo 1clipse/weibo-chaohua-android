@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         NotificationHelper.ensureChannel(this)
+        CheckinTimeoutHandler.handleIfExpired(this, "打开 App 恢复检查")
         setContent {
             var darkMode by remember { mutableStateOf(AppPreferences.darkMode(this)) }
             CheckinTheme(darkMode = darkMode) {

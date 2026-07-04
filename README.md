@@ -21,6 +21,8 @@
 - 开机、时间变化、时区变化后恢复调度
 - 手机正在使用时延后重试，安全锁屏、系统拦截或省电限制时给出明确提示
 - 45 秒内未识别到微博页面时自动超时并提示
+- 进程内 watchdog + 系统闹钟双保险，减少省电/Doze 导致的超时延迟
+- 签到执行窗口内使用 60 秒短时 wakelock，降低息屏后流程被系统打断的概率
 - 无障碍服务只监听 `com.sina.weibo`
 - 当前设备状态、下次重试时间、截止时间
 - 最近日志
@@ -44,13 +46,13 @@
 - 手机息屏或非安全锁屏：允许自动打开微博执行签到。
 - 安全锁屏：停止自动打开微博，发通知提醒解锁后继续。
 - 到当天 23:00 仍不能执行：停止当日重试，并在通知和日志里写明真实原因。
-- 如果微博或系统省电策略拦截后台启动，45 秒 watchdog 会结束本次尝试并通知你处理。
+- 如果微博或系统省电策略拦截后台启动，App 会通过进程内 watchdog 优先在 45 秒左右结束本次尝试；进程被系统杀掉时再由系统闹钟兜底。
 
 ## 已构建 APK
 
 可以在 Release 页面下载：
 
-[GitHub Release 页面](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.2)
+[GitHub Release 页面](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.3)
 
 仓库内也包含当前 Debug APK：
 

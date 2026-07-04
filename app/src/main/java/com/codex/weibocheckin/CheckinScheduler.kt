@@ -39,6 +39,7 @@ object CheckinScheduler {
     }
 
     fun scheduleWatchdog(context: Context, timeoutMs: Long = AppConstants.CHECKIN_TIMEOUT_MS) {
+        InProcessWatchdog.arm(context, timeoutMs)
         val millis = System.currentTimeMillis() + timeoutMs
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
@@ -56,6 +57,8 @@ object CheckinScheduler {
     }
 
     fun cancelWatchdog(context: Context) {
+        InProcessWatchdog.cancel()
+        CheckinWakeLock.release()
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -97,6 +100,7 @@ object CheckinScheduler {
     }
 
     fun cancel(context: Context) {
+        AppPreferences.stopAutomation(context)
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context,

@@ -12,6 +12,11 @@ class WeiboAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.packageName?.toString() != AppConstants.WEIBO_PACKAGE) return
+        if (!AppPreferences.isEnabled(this)) {
+            AppPreferences.stopAutomation(this)
+            CheckinScheduler.cancelWatchdog(this)
+            return
+        }
         if (!AppPreferences.automationActive(this)) return
 
         val now = System.currentTimeMillis()

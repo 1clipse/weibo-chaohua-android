@@ -19,9 +19,11 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         AppPreferences.setIdleDeadline(context, deadline.toString())
         val action = intent?.action
 
-        if (action == AppConstants.ACTION_CONTINUE_CHECKIN && !AppPreferences.isEnabled(context)) {
+        if (!AppPreferences.isEnabled(context)) {
+            AppPreferences.stopAutomation(context)
             CheckinScheduler.cancelRetry(context)
-            AppPreferences.addLog(context, "通知继续已忽略: 每日签到已关闭")
+            CheckinScheduler.cancelWatchdog(context)
+            AppPreferences.addLog(context, "签到触发已忽略: 每日签到已关闭")
             NotificationHelper.notify(context, "微博签到未启动", "每日签到开关已关闭。")
             return
         }
@@ -86,6 +88,7 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         AppPreferences.setTodayStatus(context, CheckinStatus.RUNNING)
         AppPreferences.startAutomation(context)
         CheckinScheduler.scheduleWatchdog(context)
+        CheckinWakeLock.acquire(context)
         AppPreferences.addLog(context, "检测到待机或非安全锁屏，开始签到")
         val launchIntent = Intent(context, CheckinLaunchActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
