@@ -12,7 +12,9 @@
 
 当前 App 是极简单页界面，支持白天/夜间模式。页面包含今日状态、权限状态、目标超话、滚轮式时间选择、测试按钮、最近日志和诊断复制入口。
 
-> 说明：`docs/screenshots` 中的旧截图暂不作为验收依据。请以真机安装后的当前界面为准；最终落地前再刷新白天/夜间截图。
+| 白天模式 | 夜间模式 |
+| --- | --- |
+| ![白天模式](docs/screenshots/day.png) | ![夜间模式](docs/screenshots/night.png) |
 
 ## 功能
 
@@ -70,7 +72,17 @@
 
 ## 已构建 APK
 
-当前本地待验收版为 `1.1.9`，尚未发布到 GitHub Release。验收时请安装下面的本地 APK，暂时不要使用旧 Release 包：
+当前版本为 `1.1.9`。
+
+小白下载入口：
+
+[点击打开 GitHub Release 下载页](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.9)
+
+直接下载 APK：
+
+[weibo-chaohua-checkin-debug.apk](https://github.com/1clipse/weibo-chaohua-android/releases/download/v1.1.9/weibo-chaohua-checkin-debug.apk)
+
+本地构建产物路径：
 
 ```text
 D:\codex-outputs\weibo-chaohua-android\apk\weibo-chaohua-checkin-debug.apk
