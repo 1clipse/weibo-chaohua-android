@@ -120,6 +120,7 @@ private val PanelShape = RoundedCornerShape(10.dp)
 private val CompactShape = RoundedCornerShape(8.dp)
 private val NextRunFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val StoredTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+private val LogTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
 
 @Composable
 private fun CheckinTheme(
@@ -457,6 +458,9 @@ private fun ResultPanel(state: UiState) {
         if (state.lastAccessibilityPreview.isNotBlank()) {
             InfoRow("最近识别", state.lastAccessibilityPreview)
         }
+        state.logs.firstOrNull()?.let {
+            InfoRow("最近日志", displayLogLine(it))
+        }
     }
 }
 
@@ -487,11 +491,16 @@ private fun StatusSummary(status: String, detail: String) {
 private fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+        Text(
+            value,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -580,24 +589,31 @@ private fun TimeWheelField(
             onDismissRequest = { showPicker = false },
             title = { Text("选择每日尝试时间") },
             text = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    TimeWheelColumn(
-                        title = "小时",
-                        values = (0..23).toList(),
-                        selectedValue = selectedHour,
-                        onValueSelected = { selectedHour = it },
-                        modifier = Modifier.weight(1f)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "滚动后请点选数字，选中的时间会高亮显示。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TimeWheelColumn(
-                        title = "分钟",
-                        values = (0..59).toList(),
-                        selectedValue = selectedMinute,
-                        onValueSelected = { selectedMinute = it },
-                        modifier = Modifier.weight(1f)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        TimeWheelColumn(
+                            title = "小时",
+                            values = (0..23).toList(),
+                            selectedValue = selectedHour,
+                            onValueSelected = { selectedHour = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                        TimeWheelColumn(
+                            title = "分钟",
+                            values = (0..59).toList(),
+                            selectedValue = selectedMinute,
+                            onValueSelected = { selectedMinute = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -608,7 +624,7 @@ private fun TimeWheelField(
                     },
                     shape = CompactShape
                 ) {
-                    Text("确定")
+                    Text("保存高亮时间")
                 }
             },
             dismissButton = {
@@ -885,12 +901,10 @@ private fun LogRow(line: String) {
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Text(
-            line,
+            displayLogLine(line),
             modifier = Modifier.padding(12.dp),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -1039,6 +1053,15 @@ private fun displayEpochMillis(value: Long): String =
     if (value <= 0L) "" else runCatching {
         LocalDateTime.ofInstant(Instant.ofEpochMilli(value), ZoneId.systemDefault()).format(StoredTimeFormatter)
     }.getOrDefault("")
+
+private fun displayLogLine(line: String): String {
+    val parts = line.split("  ", limit = 2)
+    if (parts.size != 2) return line
+    val localTime = runCatching {
+        LocalDateTime.ofInstant(Instant.parse(parts[0]), ZoneId.systemDefault()).format(LogTimeFormatter)
+    }.getOrDefault(parts[0])
+    return "$localTime  ${parts[1]}"
+}
 
 private fun automationText(active: Boolean, deadline: Long): String {
     if (!active) return "未运行"

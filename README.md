@@ -27,7 +27,8 @@
 - 无障碍服务只监听 `com.sina.weibo`
 - 当前设备状态、下次重试时间、截止时间
 - 诊断摘要：微博 App 状态、自动化窗口、最后阶段、最近识别文本
-- 最近日志
+- 本地时间格式的最近日志，失败/风控日志会优先显示关键提示
+- 时间选择器会提示保存高亮时间，避免滚动后未点选造成误会
 - 本机通知
 
 ## 手机准备
@@ -54,7 +55,7 @@
 
 可以在 Release 页面下载：
 
-[GitHub Release 页面](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.5)
+[GitHub Release 页面](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.6)
 
 仓库内也包含当前 Debug APK：
 

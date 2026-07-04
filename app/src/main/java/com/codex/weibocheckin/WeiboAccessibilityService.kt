@@ -58,6 +58,7 @@ class WeiboAccessibilityService : AccessibilityService() {
         val texts = mutableListOf<String>()
         collectTexts(root, texts)
         val preview = texts.preview()
+        val importantPreview = texts.importantPreview()
         AppPreferences.setLastAccessibilityPreview(this, preview)
 
         when (CheckinTextClassifier.classify(texts)) {
@@ -79,14 +80,14 @@ class WeiboAccessibilityService : AccessibilityService() {
                 status = CheckinStatus.NEEDS_ATTENTION,
                 title = "微博签到需要处理",
                 notification = "检测到登录、验证码或安全验证，请手动处理。",
-                log = "阻断: $preview",
+                log = "阻断: ${importantPreview.ifBlank { preview }} / 页面: $preview",
                 reason = "检测到登录、验证码或安全验证"
             )
             PageState.FAILED -> finish(
                 status = CheckinStatus.FAILED,
                 title = "微博签到失败",
                 notification = "微博页面提示签到失败，请手动确认。",
-                log = "失败: $preview",
+                log = "失败: ${importantPreview.ifBlank { preview }} / 页面: $preview",
                 reason = "微博页面提示签到失败"
             )
             PageState.READY_TO_CLICK -> {
@@ -153,4 +154,31 @@ class WeiboAccessibilityService : AccessibilityService() {
 
     private fun List<String>.preview(): String =
         take(8).joinToString(" / ").take(180)
+
+    private fun List<String>.importantPreview(): String {
+        val keywords = listOf(
+            "登录",
+            "验证码",
+            "安全验证",
+            "账号异常",
+            "访问受限",
+            "操作频繁",
+            "身份验证",
+            "风控",
+            "账号存在风险",
+            "安全检测",
+            "滑块验证",
+            "拖动滑块",
+            "环境异常",
+            "异常访问",
+            "请稍后再试",
+            "签到失败",
+            "签到未成功",
+            "请重试"
+        )
+        return filter { text -> keywords.any { text.contains(it) } }
+            .take(4)
+            .joinToString(" / ")
+            .take(180)
+    }
 }
