@@ -306,9 +306,6 @@ private fun SettingsContent(
                 ResultPanel(state)
             }
             item {
-                ActionPanel(onManualTest = onManualTest)
-            }
-            item {
                 PermissionPanel(
                     state = state,
                     onOpenAccessibility = onOpenAccessibility,
@@ -324,6 +321,9 @@ private fun SettingsContent(
                     onUrlChange = onUrlChange,
                     onTimeChange = onTimeChange
                 )
+            }
+            item {
+                ActionPanel(state = state, onManualTest = onManualTest)
             }
             item {
                 Text(
@@ -729,18 +729,42 @@ private fun TimeWheelColumn(
 }
 
 @Composable
-private fun ActionPanel(onManualTest: () -> Unit) {
+private fun ActionPanel(state: UiState, onManualTest: () -> Unit) {
+    val blockers = manualTestBlockers(state)
+    val warnings = manualTestWarnings(state)
+    val canTest = blockers.isEmpty() && !state.automationActive
     Panel {
+        SectionTitle("手动测试", "准备完成后再打开微博验证签到流程")
+        if (blockers.isNotEmpty()) {
+            Text(
+                "还需处理：${blockers.joinToString("、")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        } else if (warnings.isNotEmpty()) {
+            Text(
+                "建议检查：${warnings.joinToString("、")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(
+                "已具备手动测试条件。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Button(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
                 .semantics { contentDescription = "手动测试签到，立即打开微博测试签到流程" },
             shape = CompactShape,
+            enabled = canTest,
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             onClick = onManualTest
         ) {
-            Text("手动测试签到")
+            Text(if (state.automationActive) "测试运行中" else "手动测试签到")
         }
     }
 }
@@ -1035,6 +1059,19 @@ private fun weiboStatusText(state: UiState): String =
         state.weiboVersion.isBlank() -> "已安装"
         else -> "已安装 ${state.weiboVersion}"
     }
+
+private fun manualTestBlockers(state: UiState): List<String> = buildList {
+    if (!state.weiboInstalled) add("安装微博 App")
+    if (state.weiboInstalled && !state.weiboCanOpenUrl) add("检查超话 URL")
+    if (!state.accessibilityEnabled) add("开启无障碍")
+}
+
+private fun manualTestWarnings(state: UiState): List<String> = buildList {
+    if (!state.notificationsGranted) add("开启通知")
+    if (!state.batteryOptimizationIgnored) add("放行省电限制")
+    if (!state.exactAlarmGranted) add("开启精确闹钟")
+    if (state.deviceState.contains("安全锁屏")) add("先解锁手机")
+}
 
 private fun notificationPermissionGranted(context: Context): Boolean =
     Build.VERSION.SDK_INT < 33 ||
