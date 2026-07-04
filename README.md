@@ -74,13 +74,9 @@
 
 当前版本为 `1.1.9`。
 
-小白下载入口：
+下载入口：
 
 [点击打开 GitHub Release 下载页](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.9)
-
-直接下载 APK：
-
-[weibo-chaohua-checkin-debug.apk](https://github.com/1clipse/weibo-chaohua-android/releases/download/v1.1.9/weibo-chaohua-checkin-debug.apk)
 
 本地构建产物路径：
 
