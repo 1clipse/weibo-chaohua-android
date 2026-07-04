@@ -15,6 +15,19 @@ if (-not (Test-Path (Join-Path $JdkHome "bin\java.exe"))) {
   throw "JDK 17 not found at $JdkHome"
 }
 
+$requiredPaths = @(
+  (Join-Path $AndroidSdkRoot "platforms\android-35"),
+  (Join-Path $AndroidSdkRoot "build-tools\35.0.0"),
+  (Join-Path $AndroidSdkRoot "platform-tools\adb.exe"),
+  (Join-Path $ProjectRoot "gradlew.bat")
+)
+
+foreach ($path in $requiredPaths) {
+  if (-not (Test-Path $path)) {
+    throw "Required Android build dependency not found: $path"
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $GradleUserHome, $AndroidUserHome, $ApkOutDir | Out-Null
 
 $env:JAVA_HOME = $JdkHome

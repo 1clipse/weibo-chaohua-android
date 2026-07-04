@@ -36,7 +36,18 @@ class WeiboAccessibilityService : AccessibilityService() {
 
     private fun scanCurrentWindow() {
         if (!AppPreferences.automationActive(this)) return
+        if (isPastDeadline()) {
+            finish(
+                status = CheckinStatus.FAILED,
+                title = "微博签到超时",
+                notification = "45 秒内没有确认签到状态。",
+                log = "超时: 扫描前已超过 45 秒截止时间",
+                reason = "45 秒内没有确认签到状态"
+            )
+            return
+        }
         val root = rootInActiveWindow ?: return
+        if (root.packageName?.toString() != AppConstants.WEIBO_PACKAGE) return
         val texts = mutableListOf<String>()
         collectTexts(root, texts)
 
@@ -62,9 +73,17 @@ class WeiboAccessibilityService : AccessibilityService() {
                 log = "阻断: ${texts.preview()}",
                 reason = "检测到登录、验证码或安全验证"
             )
+            PageState.FAILED -> finish(
+                status = CheckinStatus.FAILED,
+                title = "微博签到失败",
+                notification = "微博页面提示签到失败，请手动确认。",
+                log = "失败: ${texts.preview()}",
+                reason = "微博页面提示签到失败"
+            )
             PageState.READY_TO_CLICK -> {
                 val now = System.currentTimeMillis()
                 if (now - lastClickAt < AppConstants.CLICK_DEBOUNCE_MS) return
+                if (isPastDeadline()) return
                 val clicked = clickFirstCheckinNode(root)
                 if (clicked) {
                     lastClickAt = now
@@ -84,6 +103,9 @@ class WeiboAccessibilityService : AccessibilityService() {
         AppPreferences.stopAutomation(this)
         NotificationHelper.notify(this, title, notification)
     }
+
+    private fun isPastDeadline(): Boolean =
+        System.currentTimeMillis() > AppPreferences.automationDeadline(this)
 
     private fun collectTexts(node: AccessibilityNodeInfo?, out: MutableList<String>) {
         if (node == null) return

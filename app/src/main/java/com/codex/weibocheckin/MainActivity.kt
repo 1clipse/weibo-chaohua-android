@@ -112,6 +112,7 @@ private val DarkScheme = darkColorScheme(
 private val PanelShape = RoundedCornerShape(10.dp)
 private val CompactShape = RoundedCornerShape(8.dp)
 private val NextRunFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+private val StoredTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
 
 @Composable
 private fun CheckinTheme(
@@ -137,7 +138,8 @@ private fun SettingsScreenDayPreview() {
             onManualTest = {},
             onOpenAccessibility = {},
             onOpenExactAlarm = {},
-            onOpenNotification = {}
+            onOpenNotification = {},
+            onOpenBatteryOptimization = {}
         )
     }
 }
@@ -155,7 +157,8 @@ private fun SettingsScreenNightPreview() {
             onManualTest = {},
             onOpenAccessibility = {},
             onOpenExactAlarm = {},
-            onOpenNotification = {}
+            onOpenNotification = {},
+            onOpenBatteryOptimization = {}
         )
     }
 }
@@ -191,6 +194,8 @@ private fun SettingsScreen(
             accessibilityEnabled = AccessibilityStatusChecker.isServiceEnabled(context),
             exactAlarmGranted = CheckinScheduler.canScheduleExact(context),
             notificationsGranted = notificationPermissionGranted(context),
+            batteryOptimizationIgnored = BatteryOptimizationChecker.isIgnoringBatteryOptimizations(context),
+            deviceState = DeviceIdleChecker.currentState(context).label(),
             logs = AppPreferences.logs(context)
         ),
         onEnabledChange = { checked ->
@@ -229,6 +234,9 @@ private fun SettingsScreen(
             } else {
                 openNotificationSettings(context)
             }
+        },
+        onOpenBatteryOptimization = {
+            openBatteryOptimizationSettings(context)
         }
     )
 }
@@ -243,7 +251,8 @@ private fun SettingsContent(
     onManualTest: () -> Unit,
     onOpenAccessibility: () -> Unit,
     onOpenExactAlarm: () -> Unit,
-    onOpenNotification: () -> Unit
+    onOpenNotification: () -> Unit,
+    onOpenBatteryOptimization: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.background,
@@ -277,7 +286,8 @@ private fun SettingsContent(
                     state = state,
                     onOpenAccessibility = onOpenAccessibility,
                     onOpenExactAlarm = onOpenExactAlarm,
-                    onOpenNotification = onOpenNotification
+                    onOpenNotification = onOpenNotification,
+                    onOpenBatteryOptimization = onOpenBatteryOptimization
                 )
             }
             item {
@@ -404,13 +414,14 @@ private fun ResultPanel(state: UiState) {
         SectionTitle("今日结果", "为避免打扰，会等手机空闲后再打开微博")
         StatusSummary(status = statusLabel(state.todayStatus), detail = statusDetail(state))
         if (state.lastAttempt.isNotBlank()) {
-            InfoRow("最近尝试", state.lastAttempt)
+            InfoRow("最近尝试", displayStoredTime(state.lastAttempt))
         }
+        InfoRow("当前设备", state.deviceState)
         if (state.nextRetry.isNotBlank()) {
-            InfoRow("下次重试", state.nextRetry)
+            InfoRow("下次重试", displayStoredTime(state.nextRetry))
         }
         if (state.idleDeadline.isNotBlank()) {
-            InfoRow("截止时间", state.idleDeadline)
+            InfoRow("截止时间", displayStoredTime(state.idleDeadline))
         }
     }
 }
@@ -455,7 +466,8 @@ private fun PermissionPanel(
     state: UiState,
     onOpenAccessibility: () -> Unit,
     onOpenExactAlarm: () -> Unit,
-    onOpenNotification: () -> Unit
+    onOpenNotification: () -> Unit,
+    onOpenBatteryOptimization: () -> Unit
 ) {
     Panel {
         SectionTitle("权限状态", "开启后才能定时、通知和读取微博页面")
@@ -479,6 +491,13 @@ private fun PermissionPanel(
             healthy = state.notificationsGranted,
             action = "设置",
             onClick = onOpenNotification
+        )
+        StatusRow(
+            label = "省电限制",
+            value = if (state.batteryOptimizationIgnored) "已放行" else "可能拦截",
+            healthy = state.batteryOptimizationIgnored,
+            action = "设置",
+            onClick = onOpenBatteryOptimization
         )
     }
 }
@@ -525,14 +544,14 @@ private fun TimeWheelField(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     TimeWheelColumn(
-                        title = "\u5c0f\u65f6",
+                        title = "小时",
                         values = (0..23).toList(),
                         selectedValue = selectedHour,
                         onValueSelected = { selectedHour = it },
                         modifier = Modifier.weight(1f)
                     )
                     TimeWheelColumn(
-                        title = "\u5206\u949f",
+                        title = "分钟",
                         values = (0..59).toList(),
                         selectedValue = selectedMinute,
                         onValueSelected = { selectedMinute = it },
@@ -837,6 +856,8 @@ private data class UiState(
     val accessibilityEnabled: Boolean,
     val exactAlarmGranted: Boolean,
     val notificationsGranted: Boolean,
+    val batteryOptimizationIgnored: Boolean,
+    val deviceState: String,
     val logs: List<String>
 )
 
@@ -854,6 +875,8 @@ private fun previewState(darkMode: Boolean) = UiState(
     accessibilityEnabled = true,
     exactAlarmGranted = true,
     notificationsGranted = false,
+    batteryOptimizationIgnored = false,
+    deviceState = "待机，可自动尝试",
     logs = listOf(
         "2026-07-02T10:00:00Z  手动测试触发",
         "2026-07-02T10:00:03Z  已打开微博超话，等待无障碍服务识别"
@@ -919,6 +942,18 @@ private fun nextRunText(context: Context, enabled: Boolean): String {
     return "下次尝试: ${next.format(NextRunFormatter)}"
 }
 
+private fun DeviceIdleChecker.DeviceIdleState.label(): String =
+    when (this) {
+        DeviceIdleChecker.DeviceIdleState.ACTIVE -> "正在使用，暂不打扰"
+        DeviceIdleChecker.DeviceIdleState.IDLE_UNLOCKABLE -> "待机，可自动尝试"
+        DeviceIdleChecker.DeviceIdleState.LOCKED_SECURE -> "安全锁屏，需要解锁"
+    }
+
+private fun displayStoredTime(value: String): String =
+    runCatching {
+        LocalDateTime.parse(value).format(StoredTimeFormatter)
+    }.getOrDefault(value)
+
 private fun notificationPermissionGranted(context: Context): Boolean =
     Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -940,4 +975,19 @@ private fun openNotificationSettings(context: Context) {
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     )
+}
+
+private fun openBatteryOptimizationSettings(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    val requestIntent = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val opened = runCatching { context.startActivity(requestIntent) }.isSuccess
+    if (!opened) {
+        context.startActivity(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
 }

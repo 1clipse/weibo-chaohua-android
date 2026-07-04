@@ -17,6 +17,7 @@ object DeviceIdleChecker {
         return stateFrom(
             isInteractive = powerManager?.isInteractive ?: true,
             isKeyguardLocked = keyguardManager?.isKeyguardLocked ?: false,
+            isDeviceLocked = keyguardManager?.isDeviceLocked ?: false,
             isDeviceSecure = keyguardManager?.isDeviceSecure ?: true
         )
     }
@@ -24,12 +25,14 @@ object DeviceIdleChecker {
     fun stateFrom(
         isInteractive: Boolean,
         isKeyguardLocked: Boolean,
+        isDeviceLocked: Boolean = false,
         isDeviceSecure: Boolean
     ): DeviceIdleState {
-        if (isKeyguardLocked && isDeviceSecure) {
+        val locked = isKeyguardLocked || isDeviceLocked
+        if (locked && isDeviceSecure) {
             return DeviceIdleState.LOCKED_SECURE
         }
-        if (!isInteractive || isKeyguardLocked) {
+        if (!isInteractive || locked) {
             return DeviceIdleState.IDLE_UNLOCKABLE
         }
         return DeviceIdleState.ACTIVE

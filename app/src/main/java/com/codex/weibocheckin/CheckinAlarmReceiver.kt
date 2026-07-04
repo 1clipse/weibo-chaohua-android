@@ -17,11 +17,20 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
 
         AppPreferences.setLastAttempt(context, now.toString())
         AppPreferences.setIdleDeadline(context, deadline.toString())
+        val action = intent?.action
 
-        when (intent?.action) {
+        if (action == AppConstants.ACTION_CONTINUE_CHECKIN && !AppPreferences.isEnabled(context)) {
+            CheckinScheduler.cancelRetry(context)
+            AppPreferences.addLog(context, "通知继续已忽略: 每日签到已关闭")
+            NotificationHelper.notify(context, "微博签到未启动", "每日签到开关已关闭。")
+            return
+        }
+
+        when (action) {
             AppConstants.ACTION_START_CHECKIN -> {
                 AppPreferences.addLog(context, "定时任务触发")
                 AppPreferences.setTodayStatus(context, CheckinStatus.WAITING_FOR_IDLE)
+                AppPreferences.setIdleBlockerReason(context, null)
             }
             AppConstants.ACTION_CONTINUE_CHECKIN -> {
                 AppPreferences.addLog(context, "通知继续触发")
@@ -29,6 +38,16 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
             else -> {
                 AppPreferences.addLog(context, "等待空闲重试触发")
             }
+        }
+
+        val finalAttemptDeadline = deadline.plusMinutes(AppConstants.IDLE_DEADLINE_GRACE_MINUTES)
+        val canUseGraceAttempt = action == AppConstants.ACTION_RETRY_CHECKIN && !now.isAfter(finalAttemptDeadline)
+        if (!now.isBefore(deadline) && !canUseGraceAttempt) {
+            failBecauseDeadlineReached(
+                context = context,
+                blockerReason = AppPreferences.idleBlockerReason(context).ifBlank { "23:00 前未检测到可执行状态" }
+            )
+            return
         }
 
         if (!AccessibilityStatusChecker.isServiceEnabled(context)) {
@@ -42,11 +61,6 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
                 notificationMessage = "微博超话签到需要先开启本应用的无障碍服务。开启后可回到 App 手动测试或等待自动重试。",
                 canContinueFromNotification = false
             )
-            return
-        }
-
-        if (!now.isBefore(deadline)) {
-            failBecauseNoIdleTime(context)
             return
         }
 
@@ -68,21 +82,33 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
 
     private fun startCheckin(context: Context) {
         CheckinScheduler.cancelRetry(context)
+        AppPreferences.setIdleBlockerReason(context, null)
         AppPreferences.setTodayStatus(context, CheckinStatus.RUNNING)
+        AppPreferences.startAutomation(context)
+        CheckinScheduler.scheduleWatchdog(context)
         AppPreferences.addLog(context, "检测到待机或非安全锁屏，开始签到")
         val launchIntent = Intent(context, CheckinLaunchActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(launchIntent)
+        runCatching {
+            context.startActivity(launchIntent)
+        }.onFailure {
+            CheckinScheduler.cancelWatchdog(context)
+            AppPreferences.stopAutomation(context)
+            AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, "系统阻止启动签到流程")
+            AppPreferences.addLog(context, "启动签到流程失败: ${it.message}")
+            NotificationHelper.notifyOpenCheckin(context, "微博签到需要继续", "系统阻止自动打开微博。点按通知可重新预检查后继续。")
+        }
         CheckinScheduler.scheduleNext(context)
     }
 
     private fun waitForIdleOrFail(context: Context, now: LocalDateTime, deadline: LocalDateTime) {
         val nextRetry = IdleRetryCalculator.nextRetryOrNull(now, deadline)
         if (nextRetry == null) {
-            failBecauseNoIdleTime(context)
+            failBecauseDeadlineReached(context, "23:00 前手机一直处于使用状态")
             return
         }
 
+        AppPreferences.setIdleBlockerReason(context, "23:00 前手机一直处于使用状态")
         AppPreferences.setTodayStatus(context, CheckinStatus.WAITING_FOR_IDLE)
         CheckinScheduler.scheduleRetry(context, nextRetry)
     }
@@ -97,6 +123,13 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
         notificationMessage: String,
         canContinueFromNotification: Boolean
     ) {
+        val nextRetry = IdleRetryCalculator.nextRetryOrNull(now, deadline)
+        if (nextRetry == null) {
+            failBecauseDeadlineReached(context, deadlineReasonFor(reason))
+            return
+        }
+
+        AppPreferences.setIdleBlockerReason(context, deadlineReasonFor(reason))
         AppPreferences.setTodayStatus(context, CheckinStatus.NEEDS_ATTENTION, reason)
         AppPreferences.addLog(context, logMessage)
         if (canContinueFromNotification) {
@@ -105,23 +138,23 @@ class CheckinAlarmReceiver : BroadcastReceiver() {
             NotificationHelper.notify(context, notificationTitle, notificationMessage)
         }
 
-        val nextRetry = IdleRetryCalculator.nextRetryOrNull(now, deadline)
-        if (nextRetry == null) {
-            CheckinScheduler.cancelRetry(context)
-            AppPreferences.addLog(context, "已到 23:00 截止时间，不再重试今日自动签到")
-            CheckinScheduler.scheduleNext(context)
-            return
-        }
-
         AppPreferences.addLog(context, "将在 $nextRetry 重新进行签到预检查")
         CheckinScheduler.scheduleRetry(context, nextRetry)
     }
 
-    private fun failBecauseNoIdleTime(context: Context) {
+    private fun failBecauseDeadlineReached(context: Context, blockerReason: String) {
         CheckinScheduler.cancelRetry(context)
-        AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, "23:00 前手机一直处于使用状态")
-        AppPreferences.addLog(context, "今日未自动签到: 23:00 前未检测到可执行的空闲状态")
-        NotificationHelper.notify(context, "今日未自动签到", "23:00 前手机一直在使用，请手动处理微博超话签到。")
+        AppPreferences.setIdleBlockerReason(context, null)
+        AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, blockerReason)
+        AppPreferences.addLog(context, "今日未自动签到: $blockerReason")
+        NotificationHelper.notify(context, "今日未自动签到", "$blockerReason。请手动处理微博超话签到。")
         CheckinScheduler.scheduleNext(context)
     }
+
+    private fun deadlineReasonFor(reason: String): String =
+        when {
+            reason.contains("无障碍") -> "无障碍服务未开启至 23:00 截止时间"
+            reason.contains("安全锁屏") -> "设备处于安全锁屏至 23:00 截止时间"
+            else -> reason
+        }
 }

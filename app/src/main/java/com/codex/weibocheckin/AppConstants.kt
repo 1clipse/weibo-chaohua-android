@@ -9,6 +9,7 @@ object AppConstants {
     const val CHECKIN_TIMEOUT_MS = 45_000L
     const val CLICK_DEBOUNCE_MS = 1_500L
     const val IDLE_RETRY_INTERVAL_MINUTES = 15L
+    const val IDLE_DEADLINE_GRACE_MINUTES = 2L
     const val IDLE_DEADLINE_HOUR = 23
     const val IDLE_DEADLINE_MINUTE = 0
     const val ACTION_START_CHECKIN = "com.codex.weibocheckin.START_CHECKIN"

@@ -20,7 +20,7 @@ class CheckinWatchdogReceiver : BroadcastReceiver() {
         NotificationHelper.notifyOpenCheckin(
             context,
             "微博签到需要继续",
-            "没有识别到微博页面。点按通知可再次打开微博尝试签到。"
+            "没有识别到微博页面。点按通知会重新预检查，确认可执行后再继续。"
         )
         CheckinScheduler.cancelRetry(context)
         CheckinScheduler.scheduleNext(context)

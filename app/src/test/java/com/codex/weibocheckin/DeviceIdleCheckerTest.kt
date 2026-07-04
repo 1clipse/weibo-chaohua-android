@@ -51,4 +51,17 @@ class DeviceIdleCheckerTest {
             )
         )
     }
+
+    @Test
+    fun secureDeviceLockedRequiresAttentionEvenWhenKeyguardFlagIsFalse() {
+        assertEquals(
+            DeviceIdleChecker.DeviceIdleState.LOCKED_SECURE,
+            DeviceIdleChecker.stateFrom(
+                isInteractive = false,
+                isKeyguardLocked = false,
+                isDeviceLocked = true,
+                isDeviceSecure = true
+            )
+        )
+    }
 }

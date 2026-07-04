@@ -18,6 +18,7 @@ object AppPreferences {
     private const val KEY_NEXT_RETRY = "next_retry"
     private const val KEY_IDLE_DEADLINE = "idle_deadline"
     private const val KEY_FAILURE_REASON = "failure_reason"
+    private const val KEY_IDLE_BLOCKER_REASON = "idle_blocker_reason"
 
     fun isEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, false)
@@ -83,6 +84,13 @@ object AppPreferences {
 
     fun idleDeadline(context: Context): String =
         prefs(context).getString(KEY_IDLE_DEADLINE, "").orEmpty()
+
+    fun setIdleBlockerReason(context: Context, value: String?) {
+        prefs(context).edit().putString(KEY_IDLE_BLOCKER_REASON, value.orEmpty()).apply()
+    }
+
+    fun idleBlockerReason(context: Context): String =
+        prefs(context).getString(KEY_IDLE_BLOCKER_REASON, "").orEmpty()
 
     fun startAutomation(context: Context, timeoutMs: Long = AppConstants.CHECKIN_TIMEOUT_MS) {
         prefs(context).edit()
