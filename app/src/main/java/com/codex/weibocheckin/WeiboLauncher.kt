@@ -9,14 +9,16 @@ object WeiboLauncher {
         AppPreferences.setTodayStatus(context, CheckinStatus.RUNNING)
         AppPreferences.setNextRetry(context, null)
         AppPreferences.startAutomation(context)
+        CheckinScheduler.scheduleWatchdog(context)
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(AppPreferences.chaohuaUrl(context))).apply {
             setPackage(AppConstants.WEIBO_PACKAGE)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching {
             context.startActivity(intent)
-            AppPreferences.addLog(context, "已打开微博超话，等待无障碍服务识别")
+            AppPreferences.addLog(context, "已请求打开微博超话，等待无障碍服务识别")
         }.onFailure {
+            CheckinScheduler.cancelWatchdog(context)
             AppPreferences.stopAutomation(context)
             AppPreferences.setTodayStatus(context, CheckinStatus.FAILED, "无法打开微博 App")
             AppPreferences.addLog(context, "打开微博失败: ${it.message}")

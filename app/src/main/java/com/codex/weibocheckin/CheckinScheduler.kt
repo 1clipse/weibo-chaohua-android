@@ -11,6 +11,7 @@ import java.time.ZoneId
 object CheckinScheduler {
     private const val DAILY_REQUEST_CODE = 1001
     private const val RETRY_REQUEST_CODE = 1002
+    private const val WATCHDOG_REQUEST_CODE = 1003
 
     fun canScheduleExact(context: Context): Boolean {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
@@ -35,6 +36,34 @@ object CheckinScheduler {
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
         }
         AppPreferences.addLog(context, "下次签到已安排: $next")
+    }
+
+    fun scheduleWatchdog(context: Context, timeoutMs: Long = AppConstants.CHECKIN_TIMEOUT_MS) {
+        val millis = System.currentTimeMillis() + timeoutMs
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            WATCHDOG_REQUEST_CODE,
+            Intent(context, CheckinWatchdogReceiver::class.java).setAction(AppConstants.ACTION_WATCHDOG_CHECKIN),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (canScheduleExact(context)) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
+        } else {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pendingIntent)
+        }
+        AppPreferences.addLog(context, "已安排签到超时检查")
+    }
+
+    fun cancelWatchdog(context: Context) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            WATCHDOG_REQUEST_CODE,
+            Intent(context, CheckinWatchdogReceiver::class.java).setAction(AppConstants.ACTION_WATCHDOG_CHECKIN),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
     }
 
     fun scheduleRetry(context: Context, retryAt: LocalDateTime) {
@@ -77,6 +106,7 @@ object CheckinScheduler {
         )
         alarmManager.cancel(pendingIntent)
         cancelRetry(context)
+        cancelWatchdog(context)
         AppPreferences.addLog(context, "每日签到已关闭")
     }
 }

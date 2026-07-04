@@ -80,6 +80,7 @@ class WeiboAccessibilityService : AccessibilityService() {
         AppPreferences.addLog(this, log)
         AppPreferences.setTodayStatus(this, status, reason)
         CheckinScheduler.cancelRetry(this)
+        CheckinScheduler.cancelWatchdog(this)
         AppPreferences.stopAutomation(this)
         NotificationHelper.notify(this, title, notification)
     }

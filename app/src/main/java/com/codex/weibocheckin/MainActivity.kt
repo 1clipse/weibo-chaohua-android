@@ -8,12 +8,13 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.text.TextUtils
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,16 +31,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -185,7 +190,7 @@ private fun SettingsScreen(
             nextRetry = AppPreferences.nextRetry(context),
             idleDeadline = AppPreferences.idleDeadline(context),
             failureReason = AppPreferences.failureReason(context),
-            accessibilityEnabled = isAccessibilityServiceEnabled(context),
+            accessibilityEnabled = AccessibilityStatusChecker.isServiceEnabled(context),
             exactAlarmGranted = CheckinScheduler.canScheduleExact(context),
             notificationsGranted = notificationPermissionGranted(context),
             logs = AppPreferences.logs(context)
@@ -325,7 +330,7 @@ private fun Header(state: UiState) {
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = if (state.enabled) "每天 ${state.timeText} 自动运行" else "自动签到未启用",
+                text = if (state.enabled) "每天 ${state.timeText} 尝试签到" else "签到尝试未启用",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -398,7 +403,7 @@ private fun StatePill(status: String) {
 @Composable
 private fun ResultPanel(state: UiState) {
     Panel {
-        SectionTitle("今日结果", "非打扰模式会等锁屏或待机后再打开微博")
+        SectionTitle("今日结果", "为避免打扰，会等手机空闲后再打开微博")
         StatusSummary(status = statusLabel(state.todayStatus), detail = statusDetail(state))
         if (state.lastAttempt.isNotBlank()) {
             InfoRow("最近尝试", state.lastAttempt)
@@ -488,7 +493,7 @@ private fun SettingsPanel(
     onTimeChange: (String) -> Unit
 ) {
     Panel {
-        SectionTitle("设置", "可配置目标超话，每天 10:00")
+        SectionTitle("设置", "可配置目标超话和每日尝试时间：$timeText")
         OutlinedTextField(
             value = url,
             onValueChange = onUrlChange,
@@ -498,14 +503,79 @@ private fun SettingsPanel(
             singleLine = false,
             maxLines = 3
         )
-        OutlinedTextField(
-            value = timeText,
-            onValueChange = onTimeChange,
-            label = { Text("每日时间 HH:mm") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = CompactShape,
-            singleLine = true
+        TimePickerField(timeText = timeText, onTimeChange = onTimeChange)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerField(
+    timeText: String,
+    onTimeChange: (String) -> Unit
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    val (initialHour, initialMinute) = parseTime(timeText) ?: (10 to 0)
+
+    if (showPicker) {
+        val pickerState = rememberTimePickerState(
+            initialHour = initialHour,
+            initialMinute = initialMinute,
+            is24Hour = true
         )
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text("选择每日尝试时间") },
+            text = { TimePicker(state = pickerState) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onTimeChange("%02d:%02d".format(pickerState.hour, pickerState.minute))
+                        showPicker = false
+                    },
+                    shape = CompactShape
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }, shape = CompactShape) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = "每日尝试时间，当前 $timeText，点击选择" }
+            .clickable { showPicker = true },
+        shape = CompactShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    "每日尝试时间",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(timeText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = { showPicker = true }, shape = CompactShape) {
+                Text("选择")
+            }
+        }
     }
 }
 
@@ -686,7 +756,7 @@ private fun previewState(darkMode: Boolean) = UiState(
     darkMode = darkMode,
     url = AppConstants.DEFAULT_CHAOHUA_URL,
     timeText = "10:00",
-    nextRun = "下次运行: 2026-07-03 10:00",
+    nextRun = "下次尝试: 2026-07-03 10:00",
     todayStatus = CheckinStatus.WAITING_FOR_IDLE.name,
     lastAttempt = "2026-07-02T10:00",
     nextRetry = "2026-07-02T10:15",
@@ -704,8 +774,8 @@ private fun previewState(darkMode: Boolean) = UiState(
 private fun statusLabel(status: String): String =
     when (runCatching { CheckinStatus.valueOf(status) }.getOrDefault(CheckinStatus.NOT_RUN)) {
         CheckinStatus.NOT_RUN -> "未运行"
-        CheckinStatus.WAITING_FOR_IDLE -> "等待锁屏/待机"
-        CheckinStatus.RUNNING -> "正在签到"
+        CheckinStatus.WAITING_FOR_IDLE -> "等待手机空闲"
+        CheckinStatus.RUNNING -> "正在尝试签到"
         CheckinStatus.SUCCESS -> "签到成功"
         CheckinStatus.ALREADY_DONE -> "今日已签到"
         CheckinStatus.FAILED -> "签到失败"
@@ -724,20 +794,20 @@ private fun statusColor(status: String): Color =
 private fun statusColorFromLabel(label: String): Color =
     when (label) {
         "签到成功", "今日已签到" -> Color(0xFF22C55E)
-        "等待锁屏/待机" -> Color(0xFFF59E0B)
-        "正在签到" -> Color(0xFF3B82F6)
+        "等待手机空闲" -> Color(0xFFF59E0B)
+        "正在尝试签到" -> Color(0xFF3B82F6)
         "签到失败", "需要人工处理" -> Color(0xFFEF4444)
         else -> Color(0xFF64748B)
     }
 
 private fun statusDetail(state: UiState): String =
     when (runCatching { CheckinStatus.valueOf(state.todayStatus) }.getOrDefault(CheckinStatus.NOT_RUN)) {
-        CheckinStatus.NOT_RUN -> "到点后会先判断手机是否锁屏或待机。"
-        CheckinStatus.WAITING_FOR_IDLE -> "手机正在使用，暂不跳转微博，稍后自动重试。"
-        CheckinStatus.RUNNING -> "已检测到可运行状态，正在打开微博完成签到。"
+        CheckinStatus.NOT_RUN -> "到点后会先判断手机是否空闲。"
+        CheckinStatus.WAITING_FOR_IDLE -> "手机正在使用，暂不跳转微博，会等空闲后重试。"
+        CheckinStatus.RUNNING -> "已检测到手机空闲，正在打开微博尝试签到。"
         CheckinStatus.SUCCESS -> "今天的超话签到已经完成。"
         CheckinStatus.ALREADY_DONE -> "微博页面显示今天已经签过到。"
-        CheckinStatus.FAILED -> state.failureReason.ifBlank { "今天没有自动完成签到。" }
+        CheckinStatus.FAILED -> state.failureReason.ifBlank { "今天未确认签到完成。" }
         CheckinStatus.NEEDS_ATTENTION -> state.failureReason.ifBlank { "微博需要登录、验证码或安全验证。" }
     }
 
@@ -757,21 +827,12 @@ private fun nextRunText(context: Context, enabled: Boolean): String {
         AppPreferences.hour(context),
         AppPreferences.minute(context)
     )
-    return "下次运行: ${next.format(NextRunFormatter)}"
+    return "下次尝试: ${next.format(NextRunFormatter)}"
 }
 
 private fun notificationPermissionGranted(context: Context): Boolean =
     Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-
-private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-    val expected = "${context.packageName}/${WeiboAccessibilityService::class.java.name}"
-    val enabled = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    ) ?: return false
-    return enabled.split(":").any { TextUtils.equals(it, expected) }
-}
 
 private fun openExactAlarmSettings(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

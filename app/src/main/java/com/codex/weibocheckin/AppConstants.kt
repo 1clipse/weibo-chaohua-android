@@ -13,4 +13,5 @@ object AppConstants {
     const val IDLE_DEADLINE_MINUTE = 0
     const val ACTION_START_CHECKIN = "com.codex.weibocheckin.START_CHECKIN"
     const val ACTION_RETRY_CHECKIN = "com.codex.weibocheckin.RETRY_CHECKIN"
+    const val ACTION_WATCHDOG_CHECKIN = "com.codex.weibocheckin.WATCHDOG_CHECKIN"
 }
