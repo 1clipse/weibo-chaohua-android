@@ -72,11 +72,11 @@
 
 ## 已构建 APK
 
-当前版本为 `1.1.9`。
+当前版本为 `1.1.10`。
 
 下载入口：
 
-[点击打开 GitHub Release 下载页](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.9)
+[点击打开 GitHub Release 下载页](https://github.com/1clipse/weibo-chaohua-android/releases/tag/v1.1.10)
 
 本地构建产物路径：
 
@@ -84,10 +84,10 @@
 D:\codex-outputs\weibo-chaohua-android\apk\weibo-chaohua-checkin-debug.apk
 ```
 
-本地待验收版 SHA256：
+发布版 APK SHA256：
 
 ```text
-194DF6D59FE50E3E0154EA9B434ECFD8ABA0856408363283DB2739C10E0D7F48
+2331EC5E23F06BC693F00DE4A74D2554D7DD5015AD94010470D459D7FC1971AD
 ```
 
 仓库内也包含当前 Debug APK 副本：
